@@ -1,0 +1,187 @@
+// This schema matches queue_management_schema_v6.sql: singular table
+// names, a registration junction table, and mandatory (NOT NULL)
+// foreign keys throughout except ticket.report_id / patient.checked_in_by
+// -- see the seed script (prisma/seed.js) for how those stay satisfiable.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  departmentId   Int           @id @default(autoincrement()) @map("department_id")
+  departmentName String        @map("department_name")
+  facilitators   Facilitator[]
+  triageNurses   TriageNurse[]
+  tickets        Ticket[]
+
+  @@map("department")
+}
+
+model Facilitator {
+  facilitatorId           Int      @id @default(autoincrement()) @map("facilitator_id")
+  facilitatorName         String   @map("facilitator_name")
+  facilitatorType         String   @map("facilitator_type")
+  departmentId            Int      @map("department_id")
+  phoneNumber             String?  @map("phone_number")
+  specialization          String?
+  numberOfQueuedPatients  Int      @default(0) @map("number_of_queued_patients")
+
+  department    Department     @relation(fields: [departmentId], references: [departmentId])
+  triageNurses  TriageNurse[]
+  receptionists Receptionist[]
+  services      Service[]
+  registrations Registration[]
+
+  @@map("facilitator")
+}
+
+model TriageNurse {
+  nurseId        Int      @id @default(autoincrement()) @map("nurse_id")
+  facilitatorId  Int      @map("facilitator_id")
+  nurseName      String   @map("nurse_name")
+  departmentId   Int      @map("department_id")
+  phoneNumber    String?  @map("phone_number")
+  station        String?
+
+  facilitator   Facilitator    @relation(fields: [facilitatorId], references: [facilitatorId])
+  department    Department     @relation(fields: [departmentId], references: [departmentId])
+  receptionists Receptionist[]
+  registrations Registration[]
+
+  @@map("triage_nurse")
+}
+
+model Receptionist {
+  receptionistId   Int      @id @default(autoincrement()) @map("receptionist_id")
+  receptionistName String   @map("receptionist_name")
+  nurseId          Int      @map("nurse_id")
+  facilitatorId    Int      @map("facilitator_id")
+  station          String?
+  phoneNumber      String?  @map("phone_number")
+  checkInStatus    Boolean  @default(false) @map("check_in_status")
+
+  nurse         TriageNurse    @relation(fields: [nurseId], references: [nurseId])
+  facilitator   Facilitator    @relation(fields: [facilitatorId], references: [facilitatorId])
+  patients      Patient[]
+  registrations Registration[]
+
+  @@map("receptionist")
+}
+
+model Administrator {
+  adminId     Int      @id @default(autoincrement()) @map("admin_id")
+  adminName   String   @map("admin_name")
+  phoneNumber String?  @map("phone_number")
+  reports     Report[]
+
+  @@map("administrator")
+}
+
+model Report {
+  reportId                Int      @id @default(autoincrement()) @map("report_id")
+  numberOfPatientsServed  Int?     @map("number_of_patients_served")
+  generatedBy             Int      @map("generated_by")
+  avgServiceTime          Float?   @map("avg_service_time")
+  feedback                String?
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  administrator Administrator @relation(fields: [generatedBy], references: [adminId])
+  tickets       Ticket[]
+
+  @@map("report")
+}
+
+model Patient {
+  patientId     Int       @id @default(autoincrement()) @map("patient_id")
+  patientName   String    @map("patient_name")
+  phoneNumber   String    @unique @map("phone_number")
+  nationalId    String?   @map("national_id")
+  age           Int?
+  checkInTime   DateTime? @map("check_in_time")
+  checkOutTime  DateTime? @map("check_out_time")
+  checkedInBy   Int       @map("checked_in_by")
+
+  receptionist Receptionist @relation(fields: [checkedInBy], references: [receptionistId])
+  tickets      Ticket[]
+
+  @@map("patient")
+}
+
+model ServiceType {
+  serviceId   Int       @id @default(autoincrement()) @map("service_id")
+  description String?
+  serviceName String    @map("service_name")
+  tickets     Ticket[]
+  services    Service[]
+
+  @@map("service_type")
+}
+
+model Ticket {
+  ticketNumber Int      @id @default(autoincrement()) @map("ticket_number")
+  patientId    Int      @map("patient_id")
+  serviceId    Int      @map("service_id")
+  departmentId Int      @map("department_id")
+  reportId     Int      @map("report_id")
+  status       String   @default("pending")
+  channel      String
+
+  patient       Patient        @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+  serviceType   ServiceType    @relation(fields: [serviceId], references: [serviceId])
+  department    Department     @relation(fields: [departmentId], references: [departmentId])
+  report        Report         @relation(fields: [reportId], references: [reportId])
+  notifications Notification[]
+  services      Service[]
+
+  @@map("ticket")
+}
+
+model Service {
+  serviceId        Int     @id @default(autoincrement()) @map("service_id")
+  ticketNumber     Int     @map("ticket_number")
+  serviceTypeId    Int     @map("service_type_id")
+  completionStatus String? @map("completion_status")
+  facilitatorId    Int     @map("facilitator_id")
+  facilitatorName  String? @map("facilitator_name")
+  serviceName      String? @map("service_name")
+
+  ticket        Ticket         @relation(fields: [ticketNumber], references: [ticketNumber], onDelete: Cascade)
+  serviceType   ServiceType    @relation(fields: [serviceTypeId], references: [serviceId])
+  facilitator   Facilitator    @relation(fields: [facilitatorId], references: [facilitatorId])
+  registrations Registration[]
+
+  @@map("service")
+}
+
+model Registration {
+  registrationId Int @id @default(autoincrement()) @map("registration_id")
+  facilitatorId  Int @map("facilitator_id")
+  receptionistId Int @map("receptionist_id")
+  nurseId        Int @map("nurse_id")
+  serviceId      Int @map("service_id")
+
+  facilitator  Facilitator  @relation(fields: [facilitatorId], references: [facilitatorId])
+  receptionist Receptionist @relation(fields: [receptionistId], references: [receptionistId])
+  nurse        TriageNurse  @relation(fields: [nurseId], references: [nurseId])
+  service      Service      @relation(fields: [serviceId], references: [serviceId])
+
+  @@map("registration")
+}
+
+model Notification {
+  notificationId Int       @id @default(autoincrement()) @map("notification_id")
+  ticketNumber   Int       @map("ticket_number")
+  sentAt         DateTime? @map("sent_at")
+  status         String    @default("pending")
+  channel        String
+
+  ticket Ticket @relation(fields: [ticketNumber], references: [ticketNumber], onDelete: Cascade)
+
+  @@map("notification")
+}
+
