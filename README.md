@@ -1,4 +1,4 @@
-# Web-Based Queue Management System with USSD and WhatsApp Support
+# Web-Based Queue Management System with USSD 
 
 Public hospital outpatient queue management system with three patient-facing
 channels (web, USSD, WhatsApp) sharing one queue engine.
