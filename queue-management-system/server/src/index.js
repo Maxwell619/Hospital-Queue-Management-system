@@ -7,6 +7,7 @@ const { Server } = require('socket.io');
 const ticketRoutes = require('./routes/tickets');
 const triageRoutes = require('./routes/triage');
 const serviceRoutes = require('./routes/services');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 app.use(cors());
@@ -25,6 +26,7 @@ app.get('/health', (req, res) => {
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/triage', triageRoutes);
 app.use('/api/services', serviceRoutes);
+app.use('/api/auth', authRoutes);
 
 io.on('connection', (socket) => {
   console.log('Dashboard client connected:', socket.id);
