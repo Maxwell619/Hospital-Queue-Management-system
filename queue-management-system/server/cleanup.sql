@@ -1,0 +1,1 @@
+ DELETE FROM department a USING department b WHERE a.department_id > b.department_id AND a.department_name = b.department_name; DELETE FROM service_type a USING service_type b WHERE a.service_id > b.service_id AND a.service_name = b.service_name;

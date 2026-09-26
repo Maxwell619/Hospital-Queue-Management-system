@@ -1,11 +1,3 @@
-// This schema matches queue_management_schema_v7.sql -- normalized to
-// 3NF (no facilitatorName/serviceName duplicated on service, no
-// departmentName duplicated on facilitator/triage_nurse), with a new
-// service_assignment junction table (facilitator + triage_nurse +
-// service). Unlike v6, ticket.report_id and patient.checked_in_by no
-// longer exist, so the placeholder-report/receptionist workaround from
-// the v6 seed script is gone -- only department/facilitator/triage_nurse
-// still need baseline rows, since those FKs remain mandatory.
 
 generator client {
   provider = "prisma-client-js"
@@ -18,7 +10,7 @@ datasource db {
 
 model Department {
   departmentId   Int           @id @default(autoincrement()) @map("department_id")
-  departmentName String        @map("department_name")
+  departmentName String        @unique @map("department_name")
   roomName       String?       @map("room_name")
   isActive       Boolean       @default(true) @map("is_active")
 
@@ -35,6 +27,8 @@ model Facilitator {
   departmentId            Int      @map("department_id")
   role                     String  // 'doctor' | 'labstaff' | 'pharmacist'
   numberOfQueuedPatients   Int      @default(0) @map("number_of_queued_patients")
+  username                 String  @unique
+  passwordHash             String  @map("password_hash")
 
   department    Department     @relation(fields: [departmentId], references: [departmentId])
   triageNurses  TriageNurse[]
@@ -52,6 +46,8 @@ model TriageNurse {
   departmentId  Int      @map("department_id")
   ticketNumber  Int?     @map("ticket_number")
   station       String?
+  username      String   @unique
+  passwordHash  String   @map("password_hash")
 
   facilitator   Facilitator         @relation(fields: [facilitatorId], references: [facilitatorId])
   department    Department          @relation(fields: [departmentId], references: [departmentId])
@@ -68,6 +64,8 @@ model Receptionist {
   facilitatorId    Int?     @map("facilitator_id") // only set for follow-up assignment
   station          String?
   checkInStatus    Boolean  @default(false) @map("check_in_status")
+  username         String   @unique
+  passwordHash     String   @map("password_hash")
 
   nurse       TriageNurse? @relation(fields: [nurseId], references: [nurseId])
   facilitator Facilitator? @relation(fields: [facilitatorId], references: [facilitatorId])
@@ -76,10 +74,12 @@ model Receptionist {
 }
 
 model Administrator {
-  adminId     Int      @id @default(autoincrement()) @map("admin_id")
-  adminName   String   @map("admin_name")
-  phoneNumber String?  @map("phone_number")
-  reports     Report[]
+  adminId      Int      @id @default(autoincrement()) @map("admin_id")
+  adminName    String   @map("admin_name")
+  phoneNumber  String?  @map("phone_number")
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  reports      Report[]
 
   @@map("administrator")
 }
@@ -114,7 +114,7 @@ model Patient {
 model ServiceType {
   serviceId   Int      @id @default(autoincrement()) @map("service_id")
   description String?
-  serviceName String   @map("service_name")
+  serviceName String   @unique @map("service_name")
   tickets     Ticket[]
 
   @@map("service_type")
