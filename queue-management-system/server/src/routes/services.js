@@ -1,56 +1,124 @@
-const express = require('express');
-const router = express.Router();
+const { Router } = require("express");
 const prisma = require('../db');
+const asyncHandler = require("../lib/asyncHandler");
+const ApiError = require("../lib/ApiError");
+const { authenticate, requireRole } = require("../middleware/authenticate");
 
-/**
- * PATCH /api/services/:serviceId/complete
- * Matches Doctor.markConsultationComplete() / LabStaff.markCollectionComplete()
- * / Pharmacist.markPurchaseComplete() from the class diagram -- all three
- * collapse into one endpoint here since the schema stores them as the
- * same completion_status field regardless of facilitator role.
- *
- * Decrements the facilitator's numberOfQueuedPatients, since this is
- * what makes "least busy" routing (in triage.js) actually mean
- * something over time -- without this, every facilitator's count would
- * only ever go up.
- */
-router.patch('/:serviceId/complete', async (req, res) => {
-  const serviceId = Number(req.params.serviceId);
+const router = Router();
 
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      const service = await tx.service.findUnique({ where: { serviceId } });
-      if (!service) {
-        throw Object.assign(new Error('Service not found'), { statusCode: 404 });
-      }
+// GET /api/services?completionStatus=pending
+// A facilitator's own worklist: services already assigned to them by
+// routes/triage.js, not yet started or completed.
+router.get(
+  "/",
+  authenticate,
+  requireRole("facilitator"),
+  asyncHandler(async (req, res) => {
+    const { completionStatus } = req.query;
 
-      const updatedService = await tx.service.update({
-        where: { serviceId },
-        data: { completionStatus: 'complete' },
-      });
-
-      await tx.facilitator.update({
-        where: { facilitatorId: service.facilitatorId },
-        data: { numberOfQueuedPatients: { decrement: 1 } },
-      });
-
-      const ticket = await tx.ticket.update({
-        where: { ticketNumber: service.ticketNumber },
-        data: { status: 'complete' },
-      });
-
-      return { service: updatedService, ticket };
+    const services = await prisma.service.findMany({
+      where: {
+        facilitatorId: req.user.id,
+        completionStatus: completionStatus || "pending",
+      },
+      include: { ticket: { include: { patient: true, serviceType: true } } },
+      orderBy: { serviceId: "asc" },
     });
 
-    const io = req.app.get('io');
-    io.emit('ticket:updated', result.ticket);
+    res.json(services);
+  })
+);
 
-    res.json(result);
-  } catch (err) {
-    console.error(err);
-    const status = err.statusCode || 500;
-    res.status(status).json({ error: err.message || 'Could not complete service' });
-  }
-});
+// PATCH /api/services/:serviceId/start
+// pending -> in_progress, and the ticket follows: triaged -> in_progress.
+router.patch(
+  "/:serviceId/start",
+  authenticate,
+  requireRole("facilitator"),
+  asyncHandler(async (req, res) => {
+    const serviceId = Number(req.params.serviceId);
+    if (!Number.isInteger(serviceId)) throw new ApiError(400, "serviceId must be an integer");
+
+    const service = await prisma.service.findUnique({ where: { serviceId } });
+    if (!service) throw new ApiError(404, "Service not found");
+    if (service.facilitatorId !== req.user.id) {
+      throw new ApiError(403, "You can only start services assigned to you");
+    }
+    if (service.completionStatus !== "pending") {
+      throw new ApiError(409, `Cannot start a service with status "${service.completionStatus}"`);
+    }
+
+    const [updatedService, updatedTicket] = await prisma.$transaction([
+      prisma.service.update({
+        where: { serviceId },
+        data: { completionStatus: "in_progress" },
+      }),
+      prisma.ticket.update({
+        where: { ticketNumber: service.ticketNumber },
+        data: { status: "in_progress" },
+      }),
+    ]);
+
+    const io = req.app.get("io");
+    io.emit("ticket:updated", updatedTicket);
+
+    res.json(updatedService);
+  })
+);
+
+// PATCH /api/services/:serviceId/complete
+// Only the facilitator it's assigned to (or an administrator) can close it out.
+router.patch(
+  "/:serviceId/complete",
+  authenticate,
+  requireRole("facilitator", "administrator"),
+  asyncHandler(async (req, res) => {
+    const serviceId = Number(req.params.serviceId);
+    if (!Number.isInteger(serviceId)) throw new ApiError(400, "serviceId must be an integer");
+
+    const service = await prisma.service.findUnique({ where: { serviceId } });
+    if (!service) throw new ApiError(404, "Service not found");
+
+    if (req.user.staffType === "facilitator" && service.facilitatorId !== req.user.id) {
+      throw new ApiError(403, "You can only complete services assigned to you");
+    }
+    if (service.completionStatus !== "in_progress") {
+      throw new ApiError(409, `Cannot complete a service with status "${service.completionStatus}"`);
+    }
+
+    const [updatedService, updatedTicket] = await prisma.$transaction([
+      prisma.service.update({
+        where: { serviceId },
+        data: { completionStatus: "completed" },
+      }),
+      prisma.ticket.update({
+        where: { ticketNumber: service.ticketNumber },
+        data: { status: "completed" },
+      }),
+    ]);
+
+    const io = req.app.get("io");
+    io.emit("ticket:updated", updatedTicket);
+
+    res.json(updatedService);
+  })
+);
+
+// GET /api/services/:serviceId
+router.get(
+  "/:serviceId",
+  asyncHandler(async (req, res) => {
+    const serviceId = Number(req.params.serviceId);
+    if (!Number.isInteger(serviceId)) throw new ApiError(400, "serviceId must be an integer");
+
+    const service = await prisma.service.findUnique({
+      where: { serviceId },
+      include: { ticket: { include: { patient: true } }, facilitator: true },
+    });
+    if (!service) throw new ApiError(404, "Service not found");
+
+    res.json(service);
+  })
+);
 
 module.exports = router;

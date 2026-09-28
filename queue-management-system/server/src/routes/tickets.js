@@ -5,7 +5,15 @@ const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
 
 const MINUTES_PER_PATIENT = 7; // placeholder estimate until real service-time data exists
-const DEFAULT_DEPARTMENT_ID = 1; // TODO: replace with real department routing logic
+
+async function getDefaultDepartmentId() {
+  const dept = await prisma.department.findFirst({
+    where: { isActive: true },
+    orderBy: { departmentId: 'asc' },
+  });
+  if (!dept) throw new ApiError(500, 'No active department exists — run the seed');
+  return dept.departmentId;
+}
 
 /**
  * POST /api/tickets
@@ -35,12 +43,12 @@ router.post(
         nationalId: nationalId || undefined, // optional, per the join-queue wireframe
       },
     });
-
+const departmentId = await getDefaultDepartmentId();
     const ticket = await prisma.ticket.create({
       data: {
         patientId: patient.patientId,
         serviceId: Number(serviceId),
-        departmentId: DEFAULT_DEPARTMENT_ID,
+        departmentId,
         channel,
         status: 'pending',
       },

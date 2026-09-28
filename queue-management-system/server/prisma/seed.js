@@ -91,6 +91,52 @@ async function main() {
     },
   });
 
+  // 2b. Clinical departments the triage nurse can route to, each with at
+  // least one doctor (POST /api/triage/:ticketNumber returns 409 for a
+  // department with no doctor). Respiratory has two doctors so you can
+  // watch the least-busy assignment alternate between them.
+  // Same idempotent pattern as above: upsert on the unique key
+  // (departmentName / username), and update: {} so re-seeding never
+  // resets a doctor's live numberOfQueuedPatients.
+  const clinicalDepartments = [
+    { name: "Dermatology", room: "Room 3", doctors: [{ name: "Dr. Amina Hassan", username: "amina.hassan" }] },
+    {
+      name: "Respiratory",
+      room: "Room 4",
+      doctors: [
+        { name: "Dr. Peter Kamau", username: "peter.kamau" },
+        { name: "Dr. Lucy Achieng", username: "lucy.achieng" },
+      ],
+    },
+    { name: "Cardiology", room: "Room 5", doctors: [{ name: "Dr. Daniel Mwangi", username: "daniel.mwangi" }] },
+    { name: "Paediatrics", room: "Room 6", doctors: [{ name: "Dr. Faith Wambui", username: "faith.wambui" }] },
+  ];
+
+  const clinicalSummary = [];
+  for (const dept of clinicalDepartments) {
+    const department = await prisma.department.upsert({
+      where: { departmentName: dept.name },
+      update: {},
+      create: { departmentName: dept.name, roomName: dept.room, isActive: true },
+    });
+
+    for (const doc of dept.doctors) {
+      await prisma.facilitator.upsert({
+        where: { username: doc.username },
+        update: {},
+        create: {
+          facilitatorName: doc.name,
+          departmentId: department.departmentId,
+          role: "doctor",
+          numberOfQueuedPatients: 0,
+          username: doc.username,
+          passwordHash,
+        },
+      });
+    }
+    clinicalSummary.push(`${dept.name} (${dept.doctors.map((d) => d.username).join(", ")})`);
+  }
+
   // 3. Ticket -- no natural unique key, so guard with findFirst instead
   // of upsert (Prisma's upsert requires a unique `where`). This checks
   // "does this exact seed ticket already exist" before creating one.
@@ -186,6 +232,7 @@ async function main() {
     reportId: report.reportId,
     receptionist: receptionistGrace.receptionistName,
     labTestServiceTypeId: labTest.serviceId,
+    clinicalDepartments: clinicalSummary,
     loginCredentials: {
       note: 'password for all of these is "password123"',
       administrator: adminKevin.username,
