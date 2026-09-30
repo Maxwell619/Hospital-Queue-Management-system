@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../db');
 const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
+const { notify } = require('../services/notify');
 
 const MINUTES_PER_PATIENT = 7; // placeholder estimate until real service-time data exists
 
@@ -15,15 +16,7 @@ async function getDefaultDepartmentId() {
   return dept.departmentId;
 }
 
-/**
- * POST /api/tickets
- * Matches createTicket(patientId, serviceType) from the Patient sequence
- * diagram. Called by the Channel Gateway regardless of whether the
- * patient came in through web, USSD, or WhatsApp -- the `channel` field
- * in the request body is what tells you which one.
- *
- * Body: { patientName, phoneNumber, dateOfBirth, nationalId (optional), serviceId, channel }
- */
+
 router.post(
   '/',
   asyncHandler(async (req, res) => {
@@ -35,12 +28,16 @@ router.post(
 
     const patient = await prisma.patient.upsert({
       where: { phoneNumber },
-      update: {},
+      update: {
+        patientName,
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+        nationalId: nationalId || undefined,
+      },
       create: {
         patientName,
         phoneNumber,
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-        nationalId: nationalId || undefined, // optional, per the join-queue wireframe
+        nationalId: nationalId || undefined,
       },
     });
 const departmentId = await getDefaultDepartmentId();
@@ -54,19 +51,13 @@ const departmentId = await getDefaultDepartmentId();
       },
     });
 
-    // TODO: push a "ticket created" notification back through the
-    // Notification module once that's built (step 5 of the roadmap).
+    
 
     res.status(201).json(ticket);
   })
 );
 
-/**
- * GET /api/tickets/:ticketNumber
- * Matches requestQueueStatus() / getStatus(ticketId) from the Patient
- * sequence diagram. Includes live queue position + a rough wait
- * estimate once the ticket has actually been checked in.
- */
+
 router.get(
   '/:ticketNumber',
   asyncHandler(async (req, res) => {
@@ -98,10 +89,7 @@ router.get(
   })
 );
 
-/**
- * GET /api/tickets?departmentId=1&status=checked_in
- * The queue view each facilitator role (nurse/doctor/lab/pharmacist) uses.
- */
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
@@ -121,18 +109,7 @@ router.get(
   })
 );
 
-/**
- * PATCH /api/tickets/:ticketNumber/check-in
- * Matches activateTicket(ticketId) from the Receptionist sequence
- * diagram -- this is the mandatory human-verified gate: only a
- * receptionist calling this endpoint moves a ticket from 'pending' to
- * 'checked_in'.
- *
- * v7 note: schema v7 has no column recording WHICH receptionist did
- * this (patient.checked_in_by was removed) -- known gap, flagged when
- * v7's ERD was first generated. If you want that audit trail back, it
- * needs a column added to either ticket or patient.
- */
+
 router.patch(
   '/:ticketNumber/check-in',
   asyncHandler(async (req, res) => {
@@ -155,21 +132,16 @@ router.patch(
       data: { checkInTime: new Date() },
     });
 
-    // Push the live update to any connected dashboard clients.
+    
     const io = req.app.get('io');
-    io.emit('ticket:updated', ticket);
+io.emit('ticket:updated', ticket);
+await notify(io, ticket, "You're checked in. We'll notify you when it's your turn.");
 
-    // TODO: also fire a patient-facing notification here (step 5).
-
-    res.json(ticket);
+res.json(ticket);
   })
 );
 
-/**
- * PATCH /api/tickets/:ticketNumber/cancel
- * The "cancel ticket" action from the USSD/web wireframes. Only valid
- * before a facilitator has actually started the service.
- */
+
 router.patch(
   '/:ticketNumber/cancel',
   asyncHandler(async (req, res) => {

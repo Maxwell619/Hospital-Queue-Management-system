@@ -4,10 +4,16 @@ import api from '../api/client';
 import { socket } from '../api/socket';
 import { useAuth } from '../context/AuthContext';
 
-// Resolves the department a logged-in staff member belongs to.
+// Resolves department for staff members where applicable.
 async function resolveDepartmentId(user) {
   if (user.staffType === 'triage_nurse') {
-    return user.departmentId || null;
+    if (user.departmentId) return user.departmentId;
+    try {
+      const nurse = await api.get(`/api/triage-nurses/${user.id}`);
+      return nurse.departmentId;
+    } catch {
+      return null;
+    }
   }
   if (user.staffType === 'receptionist') {
     const receptionist = await api.get(`/api/receptionists/${user.id}`);
@@ -34,10 +40,16 @@ export default function StaffDashboardPage() {
   const queueStatus = user.staffType === 'receptionist' ? 'pending' : 'checked_in';
 
   const refreshQueue = useCallback(async (deptId) => {
-    if (!deptId) return;
-    const data = await api.get(`/api/tickets?departmentId=${deptId}&status=${queueStatus}`);
+    if (user.staffType === 'receptionist' && !deptId) return;
+
+    const params = new URLSearchParams({ status: queueStatus });
+    if (deptId) {
+      params.append('departmentId', deptId);
+    }
+
+    const data = await api.get(`/api/tickets?${params.toString()}`);
     setTickets(data);
-  }, [queueStatus]);
+  }, [queueStatus, user.staffType]);
 
   const refreshServices = useCallback(async () => {
     const [pending, active] = await Promise.all([
@@ -48,7 +60,7 @@ export default function StaffDashboardPage() {
     setActiveServices(active);
   }, []);
 
-  // Initial load.
+  // Initial load
   useEffect(() => {
     let cancelled = false;
 
@@ -66,7 +78,7 @@ export default function StaffDashboardPage() {
           return;
         }
 
-        // Fetch destination departments for triage nurse
+        // Fetch destination departments for triage routing
         if (user.staffType === 'triage_nurse') {
           const depts = await api.get('/api/departments?hasDoctor=true');
           if (cancelled) return;
@@ -91,15 +103,14 @@ export default function StaffDashboardPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id, user.staffType]);
+  }, [user.id, user.staffType, refreshQueue, refreshServices]);
 
-  // Live updates.
+  // Live updates
   useEffect(() => {
     function handleUpdate(ticket) {
       if (user.staffType === 'facilitator') {
         refreshServices();
-      } else if (departmentId && ticket.departmentId === departmentId) {
+      } else if (!departmentId || ticket.departmentId === departmentId) {
         refreshQueue(departmentId);
       }
     }
