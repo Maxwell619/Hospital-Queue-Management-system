@@ -1,14 +1,16 @@
+import { authStorage } from './authStorage';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Thin wrapper around fetch: builds the full URL, attaches the JWT from
-// localStorage if present, and throws a normal Error (with the server's
-// message) on any non-2xx response, so callers can just try/catch instead
-// of checking res.ok everywhere.
+// authStorage (see authStorage.js) if present, and throws a normal Error
+// (with the server's message) on any non-2xx response, so callers can just
+// try/catch instead of checking res.ok everywhere.
 async function request(path, { method = 'GET', body, auth = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
 
   if (auth) {
-    const token = localStorage.getItem('token');
+    const token = authStorage.getItem('token');
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 

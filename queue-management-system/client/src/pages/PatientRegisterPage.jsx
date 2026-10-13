@@ -4,6 +4,7 @@ import api from '../api/client';
 
 export default function PatientRegisterPage() {
   const [serviceTypes, setServiceTypes] = useState([]);
+  const today = new Date().toISOString().split('T')[0];
   const [form, setForm] = useState({
     patientName: '',
     phoneNumber: '',
@@ -56,7 +57,9 @@ export default function PatientRegisterPage() {
     } finally {
       setSubmitting(false);
     }
+    
   }
+
 
   return (
     <div className="page page-centered">
@@ -68,13 +71,14 @@ export default function PatientRegisterPage() {
         <input id="patientName" value={form.patientName} onChange={update('patientName')} required />
 
         <label htmlFor="phoneNumber">Phone number</label>
-        <input id="phoneNumber" value={form.phoneNumber} onChange={update('phoneNumber')} required />
+        <input id="phoneNumber" value={form.phoneNumber} onChange={update('phoneNumber')} required minLength={10} maxLength={10}/>
 
-        <label htmlFor="dateOfBirth">Date of birth (optional)</label>
-        <input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={update('dateOfBirth')} />
+        <label htmlFor="dateOfBirth">Date of birth </label>
+        <input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={update('dateOfBirth')} max={today}/> 
+         
 
         <label htmlFor="nationalId">National ID (optional)</label>
-        <input id="nationalId" value={form.nationalId} onChange={update('nationalId')} />
+        <input id="nationalId" value={form.nationalId} onChange={update('nationalId')} maxLength={8}/>
 
         <label htmlFor="serviceId">Service</label>
         <select id="serviceId" value={form.serviceId} onChange={update('serviceId')} required>

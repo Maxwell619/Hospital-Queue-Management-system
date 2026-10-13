@@ -1,51 +1,60 @@
-// prisma/seed.js
-//
-// Rewritten to be fully idempotent: every insert uses upsert() keyed
-// on a natural unique field, so running `npx prisma db seed` any
-// number of times produces the exact same data, never duplicates.
-// This requires unique constraints on department_name, service_name,
-// and phoneNumber (already unique on patient) -- see the migration
-// note at the bottom if those constraints don't exist in your DB yet.
+
 
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
 const prisma = new PrismaClient();
 
 async function main() {
+  
+  await prisma.notification.deleteMany();
+  await prisma.serviceAssignment.deleteMany();
+  await prisma.service.deleteMany();
+  await prisma.ticket.deleteMany();
+  await prisma.report.deleteMany();
+  await prisma.receptionist.deleteMany();
+  await prisma.triageNurse.deleteMany();
+  await prisma.facilitator.deleteMany();
+  await prisma.patient.deleteMany();
+  await prisma.administrator.deleteMany();
+  await prisma.serviceType.deleteMany();
+  await prisma.department.deleteMany();
+
+  // Every seeded staff member shares this password -- local dev only.
   const passwordHash = await bcrypt.hash("password123", 10);
 
-  // 1. Independent tables -- upsert on the natural unique key, not id.
-  const generalMedicine = await prisma.department.upsert({
-    where: { departmentName: "General Medicine" },
-    update: {},
-    create: { departmentName: "General Medicine", roomName: "Room 1", isActive: true },
+  // 1. Departments. General Medicine MUST stay first (intake default).
+  const generalMedicine = await prisma.department.create({
+    data: { departmentName: "General Medicine", roomName: "Room 1", isActive: true },
   });
-  const laboratory = await prisma.department.upsert({
-    where: { departmentName: "Laboratory" },
-    update: {},
-    create: { departmentName: "Laboratory", roomName: "Room 2", isActive: true },
+  const dermatology = await prisma.department.create({
+    data: { departmentName: "Dermatology", roomName: "Room 2", isActive: true },
   });
+  const respiratory = await prisma.department.create({
+    data: { departmentName: "Respiratory", roomName: "Room 3", isActive: true },
+  });
+  const cardiology = await prisma.department.create({
+    data: { departmentName: "Cardiology", roomName: "Room 4", isActive: true },
+  });
+  const laboratory = await prisma.department.create({
+    data: { departmentName: "Laboratory", roomName: "Room 5", isActive: true },
+  });
+  const pharmacy = await prisma.department.create({
+    data: { departmentName: "Pharmacy", roomName: "Room 6", isActive: true },
+  });
+   
+  const consultation = await prisma.serviceType.create({
+    data: { serviceName: "Consultation", description: "General consultation with a doctor" },
+  });
+  await prisma.serviceType.create({
+    data: { serviceName: "Lab test", description: "Sample collection and testing" },
+  });
+  await prisma.serviceType.create({
+    data: { serviceName: "Pharmacy purchase", description: "Dispensing prescribed medication" },
+  });
+  
 
-  const consultation = await prisma.serviceType.upsert({
-    where: { serviceName: "Consultation" },
-    update: {},
-    create: { serviceName: "Consultation", description: "General consultation with a doctor" },
-  });
-  const labTest = await prisma.serviceType.upsert({
-    where: { serviceName: "Lab test" },
-    update: {},
-    create: { serviceName: "Lab test", description: "Sample collection and testing" },
-  });
-  await prisma.serviceType.upsert({
-    where: { serviceName: "Pharmacy purchase" },
-    update: {},
-    create: { serviceName: "Pharmacy purchase", description: "Dispensing prescribed medication" },
-  });
-
-  const patientMaxwell = await prisma.patient.upsert({
-    where: { phoneNumber: "0722000006" },
-    update: {},
-    create: {
+  const patientMaxwell = await prisma.patient.create({
+    data: {
       patientName: "Maxwell Gatua",
       phoneNumber: "0722000006",
       nationalId: "30112233",
@@ -54,10 +63,8 @@ async function main() {
     },
   });
 
-  const adminKevin = await prisma.administrator.upsert({
-    where: { username: "kevin.mutua" },
-    update: {},
-    create: {
+  const adminKevin = await prisma.administrator.create({
+    data: {
       adminName: "Kevin Mutua",
       phoneNumber: "0722000005",
       username: "kevin.mutua",
@@ -65,11 +72,13 @@ async function main() {
     },
   });
 
-  // 2. Facilitator (needs department)
-  const drJane = await prisma.facilitator.upsert({
-    where: { username: "jane.doe" },
-    update: {},
-    create: {
+  // 2. Staff -- at least one per department, because triage assigns the
+  // least-busy facilitator working in whichever department the nurse
+  // picks (any role: doctors in clinics, a lab technician in Laboratory,
+  // a pharmacist in Pharmacy). A department with nobody in it can't be
+  // routed to.
+  const drJane = await prisma.facilitator.create({
+    data: {
       facilitatorName: "Dr. Jane Doe",
       departmentId: generalMedicine.departmentId,
       role: "doctor",
@@ -78,96 +87,88 @@ async function main() {
       passwordHash,
     },
   });
-  const labTechSam = await prisma.facilitator.upsert({
-    where: { username: "sam.otieno" },
-    update: {},
-    create: {
+  const drPeter = await prisma.facilitator.create({
+    data: {
+      facilitatorName: "Dr. Peter Kimani",
+      departmentId: dermatology.departmentId,
+      role: "doctor",
+      numberOfQueuedPatients: 0,
+      username: "peter.kimani",
+      passwordHash,
+    },
+  });
+  const drLucy = await prisma.facilitator.create({
+    data: {
+      facilitatorName: "Dr. Lucy Achieng",
+      departmentId: respiratory.departmentId,
+      role: "doctor",
+      numberOfQueuedPatients: 0,
+      username: "lucy.achieng",
+      passwordHash,
+    },
+  });
+  const drHassan = await prisma.facilitator.create({
+    data: {
+      facilitatorName: "Dr. Hassan Ali",
+      departmentId: cardiology.departmentId,
+      role: "doctor",
+      numberOfQueuedPatients: 0,
+      username: "hassan.ali",
+      passwordHash,
+    },
+  });
+  await prisma.facilitator.create({ data: {
+    facilitatorName: "Sam Otieno", departmentId: laboratory.departmentId,
+    role: "labstaff", numberOfQueuedPatients: 0, username: "sam.otieno", passwordHash } });
+  await prisma.facilitator.create({ data: {
+    facilitatorName: "Ann Wekesa", departmentId: pharmacy.departmentId,
+    role: "pharmacist", numberOfQueuedPatients: 0, username: "ann.wekesa", passwordHash } });
+  const labTechSam = await prisma.facilitator.create({
+    data: {
       facilitatorName: "Sam Otieno",
       departmentId: laboratory.departmentId,
-      role: "lab",
+      role: "labstaff",
       numberOfQueuedPatients: 0,
       username: "sam.otieno",
       passwordHash,
     },
   });
-
-  // 2b. Clinical departments the triage nurse can route to, each with at
-  // least one doctor (POST /api/triage/:ticketNumber returns 409 for a
-  // department with no doctor). Respiratory has two doctors so you can
-  // watch the least-busy assignment alternate between them.
-  // Same idempotent pattern as above: upsert on the unique key
-  // (departmentName / username), and update: {} so re-seeding never
-  // resets a doctor's live numberOfQueuedPatients.
-  const clinicalDepartments = [
-    { name: "Dermatology", room: "Room 3", doctors: [{ name: "Dr. Amina Hassan", username: "amina.hassan" }] },
-    {
-      name: "Respiratory",
-      room: "Room 4",
-      doctors: [
-        { name: "Dr. Peter Kamau", username: "peter.kamau" },
-        { name: "Dr. Lucy Achieng", username: "lucy.achieng" },
-      ],
+  const pharmacistAisha = await prisma.facilitator.create({
+    data: {
+      facilitatorName: "Aisha Kariuki",
+      departmentId: pharmacy.departmentId,
+      role: "pharmacist",
+      numberOfQueuedPatients: 0,
+      username: "aisha.kariuki",
+      passwordHash,
     },
-    { name: "Cardiology", room: "Room 5", doctors: [{ name: "Dr. Daniel Mwangi", username: "daniel.mwangi" }] },
-    { name: "Paediatrics", room: "Room 6", doctors: [{ name: "Dr. Faith Wambui", username: "faith.wambui" }] },
-  ];
-
-  const clinicalSummary = [];
-  for (const dept of clinicalDepartments) {
-    const department = await prisma.department.upsert({
-      where: { departmentName: dept.name },
-      update: {},
-      create: { departmentName: dept.name, roomName: dept.room, isActive: true },
-    });
-
-    for (const doc of dept.doctors) {
-      await prisma.facilitator.upsert({
-        where: { username: doc.username },
-        update: {},
-        create: {
-          facilitatorName: doc.name,
-          departmentId: department.departmentId,
-          role: "doctor",
-          numberOfQueuedPatients: 0,
-          username: doc.username,
-          passwordHash,
-        },
-      });
-    }
-    clinicalSummary.push(`${dept.name} (${dept.doctors.map((d) => d.username).join(", ")})`);
-  }
-
-  // 3. Ticket -- no natural unique key, so guard with findFirst instead
-  // of upsert (Prisma's upsert requires a unique `where`). This checks
-  // "does this exact seed ticket already exist" before creating one.
-  let ticket = await prisma.ticket.findFirst({
-    where: { patientId: patientMaxwell.patientId, serviceId: consultation.serviceId, channel: "ussd" },
   });
-  if (!ticket) {
-    ticket = await prisma.ticket.create({
-      data: {
-        patientId: patientMaxwell.patientId,
-        serviceId: consultation.serviceId,
-        departmentId: generalMedicine.departmentId,
-        status: "pending",
-        channel: "ussd",
-      },
-    });
-  }
+
+  // 3. A ticket already being served, so dashboards aren't empty.
+  const ticket = await prisma.ticket.create({
+    data: {
+      patientId: patientMaxwell.patientId,
+      serviceId: consultation.serviceId,
+      departmentId: generalMedicine.departmentId,
+      status: "pending",
+      channel: "ussd",
+    },
+  });
 
   // 4. Report
-  let report = await prisma.report.findFirst({ where: { generatedBy: adminKevin.adminId } });
-  if (!report) {
-    report = await prisma.report.create({
-      data: { generatedBy: adminKevin.adminId, numberOfPatientsServed: 1, avgServiceTime: 12.5 },
-    });
-  }
+  const report = await prisma.report.create({
+    data: {
+      generatedBy: adminKevin.adminId,
+      numberOfPatientsServed: 1,
+      avgServiceTime: 12.5,
+    },
+  });
 
-  // 5. TriageNurse
-  const nurseMary = await prisma.triageNurse.upsert({
-    where: { username: "mary.wanjiru" },
-    update: {},
-    create: {
+  // 5. Triage nurse + receptionist work out of the intake department
+  // (receptionist's department is resolved via their supervising
+  // facilitator, Dr. Jane).
+  const nurseMary = await prisma.triageNurse.create({
+    data: {
       facilitatorId: drJane.facilitatorId,
       nurseName: "Mary Wanjiru",
       departmentId: generalMedicine.departmentId,
@@ -177,11 +178,8 @@ async function main() {
     },
   });
 
-  // 6. Receptionist
-  const receptionistGrace = await prisma.receptionist.upsert({
-    where: { username: "grace.njeri" },
-    update: {},
-    create: {
+  const receptionistGrace = await prisma.receptionist.create({
+    data: {
       receptionistName: "Grace Njeri",
       nurseId: nurseMary.nurseId,
       facilitatorId: drJane.facilitatorId,
@@ -192,53 +190,63 @@ async function main() {
     },
   });
 
-  // 7. Service
-  let service = await prisma.service.findFirst({ where: { ticketNumber: ticket.ticketNumber } });
-  if (!service) {
-    service = await prisma.service.create({
-      data: {
-        ticketNumber: ticket.ticketNumber,
-        completionStatus: "in_progress",
-        facilitatorId: drJane.facilitatorId,
-      },
-    });
-  }
-
-  // 8. ServiceAssignment
-  const existingAssignment = await prisma.serviceAssignment.findFirst({
-    where: { serviceId: service.serviceId },
+  // 6. Service for the seeded ticket, with the ticket's status brought in
+  // line so the data is reachable through the real flow.
+  const service = await prisma.service.create({
+    data: {
+      ticketNumber: ticket.ticketNumber,
+      completionStatus: "in_progress",
+      facilitatorId: drJane.facilitatorId,
+    },
   });
-  if (!existingAssignment) {
-    await prisma.serviceAssignment.create({
-      data: { facilitatorId: drJane.facilitatorId, nurseId: nurseMary.nurseId, serviceId: service.serviceId },
-    });
-  }
-
-  // 9. Notification
-  const existingNotification = await prisma.notification.findFirst({
+  await prisma.ticket.update({
     where: { ticketNumber: ticket.ticketNumber },
+    data: { status: "in_progress" },
   });
-  if (!existingNotification) {
-    await prisma.notification.create({
-      data: { ticketNumber: ticket.ticketNumber, sentAt: new Date(), status: "sent", channel: "sms" },
-    });
-  }
 
-  console.log("Seed complete (idempotent -- safe to re-run):", {
-    departments: [generalMedicine.departmentName, laboratory.departmentName],
-    facilitators: [drJane.facilitatorName, labTechSam.facilitatorName],
+  await prisma.serviceAssignment.create({
+    data: {
+      facilitatorId: drJane.facilitatorId,
+      nurseId: nurseMary.nurseId,
+      serviceId: service.serviceId,
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      ticketNumber: ticket.ticketNumber,
+      sentAt: new Date(),
+      status: "sent",
+      channel: "sms",
+    },
+  });
+
+  console.log("Seed complete:", {
+    departments: [
+      generalMedicine.departmentName,
+      dermatology.departmentName,
+      respiratory.departmentName,
+      cardiology.departmentName,
+      laboratory.departmentName,
+      pharmacy.departmentName,
+    ],
+    staff: [drJane, drPeter, drLucy, drHassan, labTechSam, pharmacistAisha].map(
+      (d) => d.facilitatorName
+    ),
     patient: patientMaxwell.patientName,
     ticketNumber: ticket.ticketNumber,
     reportId: report.reportId,
-    receptionist: receptionistGrace.receptionistName,
-    labTestServiceTypeId: labTest.serviceId,
-    clinicalDepartments: clinicalSummary,
     loginCredentials: {
       note: 'password for all of these is "password123"',
       administrator: adminKevin.username,
-      facilitator: drJane.username,
-      triage_nurse: nurseMary.username,
       receptionist: receptionistGrace.username,
+      triage_nurse: nurseMary.username,
+      facilitator_general_medicine: drJane.username,
+      facilitator_dermatology: drPeter.username,
+      facilitator_respiratory: drLucy.username,
+      facilitator_cardiology: drHassan.username,
+      facilitator_laboratory: labTechSam.username,
+      facilitator_pharmacy: pharmacistAisha.username,
     },
   });
 }

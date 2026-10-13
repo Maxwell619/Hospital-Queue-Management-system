@@ -49,6 +49,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/administrators', administratorRoutes);
 app.use('/api/service-assignment', serviceAssignmentRoutes);
+app.use('/api/staff', require('./routes/staff'));
 
 // Must be registered after every route above: notFound catches anything
 // that didn't match, errorHandler turns thrown ApiErrors and Prisma

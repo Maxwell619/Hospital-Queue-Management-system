@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useCallback } from 'react';
 import api from '../api/client';
+import { authStorage } from '../api/authStorage';
 
 const AuthContext = createContext(null);
 
 function readStoredUser() {
-  const raw = localStorage.getItem('user');
+  const raw = authStorage.getItem('user');
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -18,20 +19,20 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (staffType, username, password) => {
     // api.post's `auth: true` default is fine here even though we don't
-    // have a token yet -- there's just nothing in localStorage to attach.
+    // have a token yet -- there's just nothing in storage to attach.
     const result = await api.post('/api/auth/login', { staffType, username, password });
     const loggedInUser = { id: result.id, staffType: result.staffType, name: result.name };
 
-    localStorage.setItem('token', result.token);
-    localStorage.setItem('user', JSON.stringify(loggedInUser));
+    authStorage.setItem('token', result.token);
+    authStorage.setItem('user', JSON.stringify(loggedInUser));
     setUser(loggedInUser);
 
     return loggedInUser;
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    authStorage.removeItem('token');
+    authStorage.removeItem('user');
     setUser(null);
   }, []);
 

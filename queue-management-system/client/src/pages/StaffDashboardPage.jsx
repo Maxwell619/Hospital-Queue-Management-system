@@ -3,17 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import { socket } from '../api/socket';
 import { useAuth } from '../context/AuthContext';
+import AdminStaffPanel from '../components/AdminStaffPanel';
 
-// Resolves department for staff members where applicable.
 async function resolveDepartmentId(user) {
   if (user.staffType === 'triage_nurse') {
-    if (user.departmentId) return user.departmentId;
-    try {
-      const nurse = await api.get(`/api/triage-nurses/${user.id}`);
-      return nurse.departmentId;
-    } catch {
-      return null;
-    }
+    const nurse = await api.get(`/api/triage-nurses/${user.id}`);
+    return nurse.departmentId;
   }
   if (user.staffType === 'receptionist') {
     const receptionist = await api.get(`/api/receptionists/${user.id}`);
@@ -28,28 +23,25 @@ export default function StaffDashboardPage() {
   const navigate = useNavigate();
 
   const [departmentId, setDepartmentId] = useState(null);
-  const [departments, setDepartments] = useState([]);
   const [tickets, setTickets] = useState([]); // receptionist (pending) / triage_nurse (checked_in)
   const [pendingServices, setPendingServices] = useState([]); // facilitator: assigned, not started
   const [activeServices, setActiveServices] = useState([]); // facilitator: started, not completed
-  const [triageDepartmentId, setTriageDepartmentId] = useState('');
+  const [departments, setDepartments] = useState([]); // triage nurse: routing targets
+  // Each ticket gets its own destination: { [ticketNumber]: departmentId }.
+  // A single shared value meant every patient was routed to the same place.
+  const [triageSelections, setTriageSelections] = useState({});
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null); // success message after routing
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
 
   const queueStatus = user.staffType === 'receptionist' ? 'pending' : 'checked_in';
 
   const refreshQueue = useCallback(async (deptId) => {
-    if (user.staffType === 'receptionist' && !deptId) return;
-
-    const params = new URLSearchParams({ status: queueStatus });
-    if (deptId) {
-      params.append('departmentId', deptId);
-    }
-
-    const data = await api.get(`/api/tickets?${params.toString()}`);
+    if (!deptId) return;
+    const data = await api.get(`/api/tickets?departmentId=${deptId}&status=${queueStatus}`);
     setTickets(data);
-  }, [queueStatus, user.staffType]);
+  }, [queueStatus]);
 
   const refreshServices = useCallback(async () => {
     const [pending, active] = await Promise.all([
@@ -60,7 +52,7 @@ export default function StaffDashboardPage() {
     setActiveServices(active);
   }, []);
 
-  // Initial load
+  // Initial load.
   useEffect(() => {
     let cancelled = false;
 
@@ -77,20 +69,12 @@ export default function StaffDashboardPage() {
           setLoading(false);
           return;
         }
-
-        // Fetch destination departments for triage routing
-        if (user.staffType === 'triage_nurse') {
-          const depts = await api.get('/api/departments?hasDoctor=true');
-          if (cancelled) return;
-          setDepartments(depts);
-          if (depts.length) {
-            setTriageDepartmentId(String(depts[0].departmentId));
-          }
-        }
-
         const deptId = await resolveDepartmentId(user);
         if (cancelled) return;
         setDepartmentId(deptId);
+        if (user.staffType === 'triage_nurse') {
+          setDepartments(await api.get('/api/departments', { auth: false }));
+        }
         await refreshQueue(deptId);
       } catch (err) {
         if (!cancelled) setError(err.message);
@@ -103,14 +87,19 @@ export default function StaffDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user.id, user.staffType, refreshQueue, refreshServices]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id, user.staffType]);
 
-  // Live updates
+  // Live updates.
   useEffect(() => {
-    function handleUpdate(ticket) {
+    function handleUpdate() {
       if (user.staffType === 'facilitator') {
         refreshServices();
-      } else if (!departmentId || ticket.departmentId === departmentId) {
+      } else if (departmentId) {
+        // No department filter on purpose: triage changes a ticket's
+        // departmentId to the specialty it was routed to, so filtering
+        // on ticket.departmentId would miss exactly the update that
+        // should remove it from this (intake) queue.
         refreshQueue(departmentId);
       }
     }
@@ -132,17 +121,26 @@ export default function StaffDashboardPage() {
     }
   }
 
+  function selectTriageDepartment(ticketNumber, value) {
+    setTriageSelections((prev) => ({ ...prev, [ticketNumber]: value }));
+  }
+
   async function handleTriage(ticketNumber) {
-    if (!triageDepartmentId) {
-      setError('Choose a department first');
-      return;
-    }
+    const chosen = triageSelections[ticketNumber];
+    if (!chosen) return;
+
     setActionBusy(true);
     setError(null);
+    setNotice(null);
     try {
-      await api.post(`/api/triage/${ticketNumber}`, {
-        departmentId: Number(triageDepartmentId),
+      const result = await api.post(`/api/triage/${ticketNumber}`, {
+        departmentId: Number(chosen),
       });
+      // The row disappears from this list once routed, so say where it went.
+      setNotice(
+        `Ticket #${ticketNumber} routed to ${result.department.departmentName} — ` +
+          `assigned to ${result.facilitator.facilitatorName}.`
+      );
       await refreshQueue(departmentId);
     } catch (err) {
       setError(err.message);
@@ -176,6 +174,18 @@ export default function StaffDashboardPage() {
       setActionBusy(false);
     }
   }
+  async function handleRefer(serviceId, to) {
+    setActionBusy(true);
+    setError(null);
+    try {
+      await api.patch(`/api/services/${serviceId}/refer`, { to });
+      await refreshServices();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setActionBusy(false);
+    }
+  }
 
   async function handleGenerateReport() {
     setActionBusy(true);
@@ -195,10 +205,6 @@ export default function StaffDashboardPage() {
     navigate('/login');
   }
 
-  const selectedDepartment = departments.find(
-    (d) => String(d.departmentId) === String(triageDepartmentId)
-  );
-
   return (
     <div className="page">
       <header className="topbar">
@@ -213,17 +219,19 @@ export default function StaffDashboardPage() {
 
       <main className="content">
         {error && <p className="error">{error}</p>}
+        {notice && <p style={{ color: '#2e7d32', fontSize: '0.9rem' }}>{notice}</p>}
         {loading && <p>Loading…</p>}
 
         {!loading && user.staffType === 'administrator' && (
-          <section className="card">
-            <h2>Reports</h2>
-            <p>Generate a report of completed tickets across all departments.</p>
-            <button onClick={handleGenerateReport} disabled={actionBusy}>
-              Generate report
-            </button>
-          </section>
-        )}
+     <>
+       <section className="card">
+         <h2>Reports</h2>
+         <p>Generate a report of completed tickets across all departments.</p>
+         <button onClick={handleGenerateReport} disabled={actionBusy}>Generate report</button>
+       </section>
+       <AdminStaffPanel />
+     </>
+   )}
 
         {!loading && user.staffType === 'facilitator' && (
           <>
@@ -262,15 +270,25 @@ export default function StaffDashboardPage() {
               <h2>In progress</h2>
               {activeServices.length === 0 && <p>Nothing in progress.</p>}
               {activeServices.map((s) => (
-                <div className="active-service" key={s.serviceId}>
-                  <p>
-                    Now serving ticket #{s.ticket?.ticketNumber} — {s.ticket?.patient?.patientName}
-                  </p>
-                  <button onClick={() => handleCompleteService(s.serviceId)} disabled={actionBusy}>
-                    Mark complete
-                  </button>
-                </div>
-              ))}
+  <div className="active-service" key={s.serviceId}>
+    <p>
+      Now serving ticket #{s.ticket?.ticketNumber} — {s.ticket?.patient?.patientName}
+    </p>
+    {s.facilitator?.role === 'doctor' && (
+      <>
+        <button onClick={() => handleRefer(s.serviceId, 'lab')} disabled={actionBusy}>
+          Refer to lab
+        </button>
+        <button onClick={() => handleRefer(s.serviceId, 'pharmacy')} disabled={actionBusy}>
+          Refer to pharmacy
+        </button>
+      </>
+    )}
+    <button onClick={() => handleCompleteService(s.serviceId)} disabled={actionBusy}>
+      {s.facilitator?.role === 'doctor' ? 'Complete visit' : 'Mark complete'}
+    </button>
+  </div>
+))}
             </section>
           </>
         )}
@@ -313,46 +331,55 @@ export default function StaffDashboardPage() {
             <h2>Checked-in patients</h2>
             {tickets.length === 0 && <p>No patients waiting for triage.</p>}
             {tickets.length > 0 && (
-              <>
-                <label htmlFor="triageDepartment">Route to</label>
-                <select
-                  id="triageDepartment"
-                  value={triageDepartmentId}
-                  onChange={(e) => setTriageDepartmentId(e.target.value)}
-                  style={{ marginBottom: '0.75rem' }}
-                >
-                  {departments.map((d) => (
-                    <option key={d.departmentId} value={d.departmentId}>
-                      {d.departmentName}
-                    </option>
-                  ))}
-                </select>
+              <table className="queue-table">
+                <thead>
+                  <tr>
+                    <th>Ticket</th>
+                    <th>Patient</th>
+                    <th>Service</th>
+                    <th>Route to</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map((t) => {
+                    const chosen = triageSelections[t.ticketNumber] || '';
+                    const chosenDept = departments.find(
+                      (d) => String(d.departmentId) === String(chosen)
+                    );
 
-                <table className="queue-table">
-                  <thead>
-                    <tr>
-                      <th>Ticket</th>
-                      <th>Patient</th>
-                      <th>Service</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tickets.map((t) => (
+                    return (
                       <tr key={t.ticketNumber}>
                         <td>#{t.ticketNumber}</td>
                         <td>{t.patient?.patientName}</td>
                         <td>{t.serviceType?.serviceName}</td>
                         <td>
-                          <button onClick={() => handleTriage(t.ticketNumber)} disabled={actionBusy}>
-                            Triage {selectedDepartment ? `→ ${selectedDepartment.departmentName}` : ''}
+                          <select
+                            value={chosen}
+                            onChange={(e) => selectTriageDepartment(t.ticketNumber, e.target.value)}
+                            aria-label={`Department for ticket ${t.ticketNumber}`}
+                          >
+                            <option value="">Select department…</option>
+                            {departments.map((d) => (
+                              <option key={d.departmentId} value={d.departmentId}>
+                                {d.departmentName}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <button
+                            onClick={() => handleTriage(t.ticketNumber)}
+                            disabled={actionBusy || !chosen}
+                          >
+                            {chosenDept ? `Route → ${chosenDept.departmentName}` : 'Route'}
                           </button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
           </section>
         )}

@@ -10,12 +10,14 @@ const { authenticate, requireRole } = require('../middleware/authenticate');
  * The triage nurse routes a checked-in patient to a clinical department
  * (Dermatology, Respiratory, ...). In one atomic transaction this:
  *   1. moves the ticket into the chosen department and marks it 'triaged'
- *   2. assigns the least-busy doctor in that department (lowest
- *      numberOfQueuedPatients -- the only ranking signal without a
- *      priority field)
+ *   2. assigns the least-busy staff member in that department, whatever
+ *      their role (lowest numberOfQueuedPatients -- the only ranking
+ *      signal without a priority field). The department decides who
+ *      handles the patient: a doctor in Dermatology, a lab technician
+ *      in Laboratory, a pharmacist in Pharmacy.
  *   3. creates the pending Service + ServiceAssignment rows and bumps
- *      that doctor's load
- * If anything fails (e.g. no doctor in the department), nothing is
+ *      that person's load
+ * If anything fails (e.g. nobody works in the department), nothing is
  * written, so a ticket is never left triaged-but-unassigned.
  *
  * Body: { departmentId }
@@ -47,11 +49,11 @@ router.post(
       }
 
       const facilitator = await tx.facilitator.findFirst({
-        where: { departmentId, role: 'doctor' },
+        where: { departmentId },
         orderBy: { numberOfQueuedPatients: 'asc' },
       });
       if (!facilitator) {
-        throw new ApiError(409, `No doctor available in ${department.departmentName}`);
+        throw new ApiError(409, `No staff are assigned to ${department.departmentName} yet`);
       }
 
       await tx.triageNurse.update({
@@ -86,7 +88,18 @@ router.post(
         data: { numberOfQueuedPatients: { increment: 1 } },
       });
 
-      return { ticket: updatedTicket, service, facilitator, department };
+      // Only return what the caller needs -- the full facilitator row
+      // includes username and passwordHash, which must never leave the server.
+      return {
+        ticket: updatedTicket,
+        service,
+        facilitator: {
+          facilitatorId: facilitator.facilitatorId,
+          facilitatorName: facilitator.facilitatorName,
+          role: facilitator.role,
+        },
+        department,
+      };
     });
 
     const io = req.app.get('io');
