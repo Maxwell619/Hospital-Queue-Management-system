@@ -4,18 +4,8 @@ const prisma = require('../db');
 const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
 const { notify } = require('../services/notify');
-
-const MINUTES_PER_PATIENT = 7; // placeholder estimate until real service-time data exists
-
-async function getDefaultDepartmentId() {
-  const dept = await prisma.department.findFirst({
-    where: { isActive: true },
-    orderBy: { departmentId: 'asc' },
-  });
-  if (!dept) throw new ApiError(500, 'No active department exists — run the seed');
-  return dept.departmentId;
-}
-
+const { getDefaultDepartmentId, getQueueInfo } = require('../services/queue');
+const { notifyTicketBySms } = require('../services/ticketSms');
 
 router.post(
   '/',
@@ -40,7 +30,8 @@ router.post(
         nationalId: nationalId || undefined,
       },
     });
-const departmentId = await getDefaultDepartmentId();
+
+    const departmentId = await getDefaultDepartmentId();
     const ticket = await prisma.ticket.create({
       data: {
         patientId: patient.patientId,
@@ -51,12 +42,11 @@ const departmentId = await getDefaultDepartmentId();
       },
     });
 
-    
+    notifyTicketBySms(ticket.ticketNumber, 'created'); // not awaited on purpose
 
     res.status(201).json(ticket);
   })
 );
-
 
 router.get(
   '/:ticketNumber',
@@ -66,49 +56,40 @@ router.get(
 
     const ticket = await prisma.ticket.findUnique({
       where: { ticketNumber },
-      include: { patient: true, serviceType: true },
+      include: { patient: true, serviceType: true, department: true },
     });
     if (!ticket) throw new ApiError(404, 'Ticket not found');
 
-    let position = null;
-    let estimatedWaitMinutes = null;
-
-    if (ticket.status === 'checked_in') {
-      const aheadCount = await prisma.ticket.count({
-        where: {
-          departmentId: ticket.departmentId,
-          status: 'checked_in',
-          ticketNumber: { lt: ticket.ticketNumber },
-        },
-      });
-      position = aheadCount + 1;
-      estimatedWaitMinutes = aheadCount * MINUTES_PER_PATIENT;
-    }
+    const { position, estimatedWaitMinutes } = await getQueueInfo(ticket);
 
     res.json({ ...ticket, position, estimatedWaitMinutes });
   })
 );
 
-
+// GET /api/tickets?status=...&departmentId=...
+// departmentId is optional: receptionists and triage nurses aren't tied to a
+// department, so they call this with just a status and see the whole hospital.
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     const { departmentId, status } = req.query;
-    if (!departmentId) throw new ApiError(400, 'departmentId query param is required');
+
+    const where = { status: status || 'checked_in' };
+    if (departmentId !== undefined && departmentId !== '') {
+      const id = Number(departmentId);
+      if (!Number.isInteger(id)) throw new ApiError(400, 'departmentId must be an integer');
+      where.departmentId = id;
+    }
 
     const tickets = await prisma.ticket.findMany({
-      where: {
-        departmentId: Number(departmentId),
-        status: status || 'checked_in',
-      },
-      include: { patient: true, serviceType: true },
+      where,
+      include: { patient: true, serviceType: true, department: true },
       orderBy: { ticketNumber: 'asc' },
     });
 
     res.json(tickets);
   })
 );
-
 
 router.patch(
   '/:ticketNumber/check-in',
@@ -124,7 +105,7 @@ router.patch(
 
     const ticket = await prisma.ticket.update({
       where: { ticketNumber },
-      data: { status: 'checked_in' },
+      data: { status: 'checked_in', checkedInAt: new Date() },
     });
 
     await prisma.patient.update({
@@ -132,15 +113,14 @@ router.patch(
       data: { checkInTime: new Date() },
     });
 
-    
     const io = req.app.get('io');
-io.emit('ticket:updated', ticket);
-await notify(io, ticket, "You're checked in. We'll notify you when it's your turn.");
+    io.emit('ticket:updated', ticket);
+    await notify(io, ticket, "You're checked in. We'll notify you when it's your turn.");
+    notifyTicketBySms(ticket.ticketNumber, 'checked_in'); // not awaited on purpose
 
-res.json(ticket);
+    res.json(ticket);
   })
 );
-
 
 router.patch(
   '/:ticketNumber/cancel',

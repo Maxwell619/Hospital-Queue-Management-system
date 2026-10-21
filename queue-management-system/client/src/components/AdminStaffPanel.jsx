@@ -44,7 +44,9 @@ export default function AdminStaffPanel() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const needsDepartment = form.staffType !== 'administrator';'receptionist'; 'triage_nurse';
+  // Only facilitators belong to a department. Nurses and receptionists work
+  // across the whole hospital; administrators have no department either.
+  const needsDepartment = form.staffType === 'facilitator';
   const needsStation = form.staffType === 'triage_nurse' || form.staffType === 'receptionist';
 
   const loadStaff = useCallback(async () => {
@@ -129,6 +131,12 @@ export default function AdminStaffPanel() {
           ))}
         </select>
 
+        {needsStation && (
+          <p style={{ fontSize: '0.85rem', color: '#666' }}>
+          
+          </p>
+        )}
+
         {form.staffType === 'facilitator' && (
           <>
             <label htmlFor="role">Role</label>
@@ -149,7 +157,7 @@ export default function AdminStaffPanel() {
               id="departmentId"
               value={form.departmentId}
               onChange={(e) => update('departmentId', e.target.value)}
-              required
+             required
             >
               {departments.map((d) => (
                 <option key={d.departmentId} value={d.departmentId}>
@@ -209,11 +217,12 @@ export default function AdminStaffPanel() {
               <td>{s.name}</td>
               <td>{s.role ? FACILITATOR_ROLES.find((r) => r.value === s.role)?.label ?? s.role : TYPE_LABEL[s.staffType]}</td>
               <td>{s.department ?? '—'}</td>
-              <td>{s.username}</td> 
+              <td>{s.username}</td>
             </tr>
           ))}
         </tbody>
       </table>
     </section>
+    
   );
 }

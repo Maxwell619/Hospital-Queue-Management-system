@@ -1,0 +1,126 @@
+/* Class names are prefixed "app-" so they can't clash with your existing styles. */
+
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+  }
+  
+  .app-main {
+    flex: 1;
+    min-width: 0; /* lets wide tables shrink instead of pushing the page sideways */
+  }
+  
+  .app-sidebar {
+    width: 230px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.25rem 1rem;
+    background: #fff;
+    border-right: 1px solid #e3e3e3;
+    box-sizing: border-box;
+  }
+  
+  .app-sidebar-title {
+    font-weight: 600;
+    font-size: 1.05rem;
+    padding: 0 0.25rem;
+  }
+  
+  .app-sidebar nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    flex: 1;
+  }
+  
+  .app-sidebar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  
+  .app-sidebar-group-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #888;
+    padding: 0 0.25rem;
+  }
+  
+  /* Used for both <a> links and <button>s so they look identical. */
+  .app-nav-button {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    text-align: left;
+    font: inherit;
+    font-size: 0.9rem;
+    color: #2b2b2b;
+    background: #fff;
+    border: 1px solid #2b2b2b;
+    border-radius: 6px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  
+  .app-nav-button:hover {
+    background: #f1f1f1;
+  }
+  
+  .app-nav-button.active {
+    background: #2b2b2b;
+    color: #fff;
+  }
+  
+  .app-sidebar-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e3e3e3;
+  }
+  
+  .app-sidebar-user {
+    font-size: 0.85rem;
+    padding: 0 0.25rem;
+  }
+  
+  .app-sidebar-user span {
+    display: block;
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: capitalize;
+  }
+  
+  /* Narrow screens (phones): the sidebar becomes a bar across the top. */
+  @media (max-width: 800px) {
+    .app-shell {
+      flex-direction: column;
+    }
+  
+    .app-sidebar {
+      width: auto;
+      height: auto;
+      position: static;
+      border-right: none;
+      border-bottom: 1px solid #e3e3e3;
+    }
+  
+    .app-sidebar nav {
+      flex-direction: row;
+      flex-wrap: wrap;
+      flex: none;
+    }
+  
+    .app-nav-button {
+      width: auto;
+    }
+  }
+  

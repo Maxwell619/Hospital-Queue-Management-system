@@ -4,25 +4,8 @@ const prisma = require('../db');
 const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
 const { authenticate, requireRole } = require('../middleware/authenticate');
+const { notifyTicketBySms } = require('../services/ticketsms');
 
-/**
- * POST /api/triage/:ticketNumber
- * The triage nurse routes a checked-in patient to a clinical department
- * (Dermatology, Respiratory, ...). In one atomic transaction this:
- *   1. moves the ticket into the chosen department and marks it 'triaged'
- *   2. assigns the least-busy staff member in that department, whatever
- *      their role (lowest numberOfQueuedPatients -- the only ranking
- *      signal without a priority field). The department decides who
- *      handles the patient: a doctor in Dermatology, a lab technician
- *      in Laboratory, a pharmacist in Pharmacy.
- *   3. creates the pending Service + ServiceAssignment rows and bumps
- *      that person's load
- * If anything fails (e.g. nobody works in the department), nothing is
- * written, so a ticket is never left triaged-but-unassigned.
- *
- * Body: { departmentId }
- * The nurse is identified by the login token, not the request body.
- */
 router.post(
   '/:ticketNumber',
   authenticate,
@@ -105,8 +88,9 @@ router.post(
     const io = req.app.get('io');
     io.emit('ticket:updated', result.ticket);
 
-    // TODO: fire a patient-facing notification here ("go to <department>")
-    // once the Notification module actually dispatches messages.
+    // Text the patient where to go. Sent after the transaction commits, and
+    // not awaited, so an SMS problem can never undo or delay the routing.
+    notifyTicketBySms(ticketNumber, 'triaged');
 
     res.json(result);
   })

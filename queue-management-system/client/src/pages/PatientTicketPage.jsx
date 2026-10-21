@@ -6,10 +6,16 @@ import { socket } from '../api/socket';
 const STATUS_LABELS = {
   pending: 'Waiting for check-in at reception',
   checked_in: 'In queue',
+  triaged: 'Sent to a department, waiting to be called',
+  referred: 'Referred onward, waiting to be called',
   in_progress: 'Being served now',
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
+
+// Until triage, a ticket only holds a default department, not the one the
+// patient will actually visit, so the department is shown only after routing.
+const NOT_ROUTED_YET = ['pending', 'checked_in', 'cancelled'];
 
 export default function PatientTicketPage() {
   const { ticketNumber } = useParams();
@@ -30,16 +36,12 @@ export default function PatientTicketPage() {
     refresh();
   }, [refresh]);
 
-  // Live updates: refresh whenever this specific ticket changes.
+  // Live updates: refresh on any ticket change, not just this ticket's,
+  // because other patients being called or checked out moves this one up.
   useEffect(() => {
-    function handleUpdate(updated) {
-      if (String(updated.ticketNumber) === String(ticketNumber)) {
-        refresh();
-      }
-    }
-    socket.on('ticket:updated', handleUpdate);
-    return () => socket.off('ticket:updated', handleUpdate);
-  }, [ticketNumber, refresh]);
+    socket.on('ticket:updated', refresh);
+    return () => socket.off('ticket:updated', refresh);
+  }, [refresh]);
 
   async function handleCancel() {
     setCancelling(true);
@@ -75,6 +77,7 @@ export default function PatientTicketPage() {
   }
 
   const canCancel = ['pending', 'checked_in'].includes(ticket.status);
+  const routed = !NOT_ROUTED_YET.includes(ticket.status);
 
   return (
     <div className="page page-centered">
@@ -92,7 +95,14 @@ export default function PatientTicketPage() {
           <span>{ticket.serviceType?.serviceName}</span>
         </div>
 
-        {ticket.status === 'checked_in' && ticket.position != null && (
+        {ticket.status !== 'cancelled' && (
+          <div className="status-row">
+            <span className="status-label">Department</span>
+            <span>{routed ? ticket.department?.departmentName : 'Assigned after triage'}</span>
+          </div>
+        )}
+
+        {ticket.position != null && (
           <>
             <div className="status-row">
               <span className="status-label">Position in queue</span>

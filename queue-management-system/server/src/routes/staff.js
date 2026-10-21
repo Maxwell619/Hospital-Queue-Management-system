@@ -18,15 +18,14 @@ const MIN_PASSWORD_LENGTH = 8;
 // POST /api/staff
 // Body: { staffType, name, username, password, departmentId?, role?, station? }
 //   facilitator   -> needs departmentId and role (doctor | labstaff | pharmacist)
-//   triage_nurse  -> needs departmentId; station optional
-//   receptionist  -> needs departmentId; station optional
+//   triage_nurse  -> no department; station optional
+//   receptionist  -> no department; station optional
 //   administrator -> no department
 //
-// triage_nurse requires a supervising facilitator in the schema, and a
-// receptionist's department is only resolvable through their facilitator
-// (see resolveDepartmentId in the dashboard). So for both, the server
-// uses the chosen department's first doctor. That means a department
-// needs a doctor before nurses/receptionists can be added to it.
+// Triage nurses and receptionists work across the whole hospital, so
+// departmentId is neither required nor stored for them. This relies on
+// TriageNurse.facilitatorId and TriageNurse.departmentId being optional in
+// schema.prisma (Receptionist.facilitatorId already is).
 router.post(
   "/",
   asyncHandler(async (req, res) => {
@@ -46,31 +45,17 @@ router.post(
       throw new ApiError(400, `password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
 
+    // Only facilitators belong to a department.
     let department = null;
-    if (staffType !== "administrator") {
+    if (staffType === "facilitator") {
       const id = Number(departmentId);
       if (!Number.isInteger(id)) throw new ApiError(400, "departmentId is required");
       department = await prisma.department.findUnique({ where: { departmentId: id } });
       if (!department || !department.isActive) {
         throw new ApiError(404, "Department not found or not active");
       }
-    }
-
-    if (staffType === "facilitator" && !FACILITATOR_ROLES.includes(role)) {
-      throw new ApiError(400, `role must be one of: ${FACILITATOR_ROLES.join(", ")}`);
-    }
-
-    let supervisor = null;
-    if (staffType === "triage_nurse" || staffType === "receptionist") {
-      supervisor = await prisma.facilitator.findFirst({
-        where: { departmentId: department.departmentId, role: "doctor" },
-        orderBy: { facilitatorId: "asc" },
-      });
-      if (!supervisor) {
-        throw new ApiError(
-          409,
-          `${department.departmentName} has no doctor yet -- add a doctor there first`
-        );
+      if (!FACILITATOR_ROLES.includes(role)) {
+        throw new ApiError(400, `role must be one of: ${FACILITATOR_ROLES.join(", ")}`);
       }
     }
 
@@ -95,8 +80,6 @@ router.post(
         const row = await prisma.triageNurse.create({
           data: {
             nurseName: cleanName,
-            facilitatorId: supervisor.facilitatorId,
-            departmentId: department.departmentId,
             station: cleanStation,
             username,
             passwordHash,
@@ -107,7 +90,6 @@ router.post(
         const row = await prisma.receptionist.create({
           data: {
             receptionistName: cleanName,
-            facilitatorId: supervisor.facilitatorId,
             station: cleanStation,
             username,
             passwordHash,
@@ -138,6 +120,8 @@ router.post(
 
 // GET /api/staff
 // Everyone who can log in, newest types grouped together, hashes excluded.
+// Only facilitators show a department; nurses and receptionists are
+// hospital-wide.
 router.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -154,21 +138,11 @@ router.get(
       }),
       prisma.triageNurse.findMany({
         orderBy: { nurseName: "asc" },
-        select: {
-          nurseId: true,
-          nurseName: true,
-          username: true,
-          department: { select: { departmentName: true } },
-        },
+        select: { nurseId: true, nurseName: true, username: true },
       }),
       prisma.receptionist.findMany({
         orderBy: { receptionistName: "asc" },
-        select: {
-          receptionistId: true,
-          receptionistName: true,
-          username: true,
-          facilitator: { select: { department: { select: { departmentName: true } } } },
-        },
+        select: { receptionistId: true, receptionistName: true, username: true },
       }),
       prisma.administrator.findMany({
         orderBy: { adminName: "asc" },
@@ -183,11 +157,11 @@ router.get(
       })),
       ...receptionists.map((r) => ({
         staffType: "receptionist", id: r.receptionistId, name: r.receptionistName,
-        username: r.username, role: null, department: r.facilitator?.department?.departmentName ?? null,
+        username: r.username, role: null, department: null,
       })),
       ...nurses.map((n) => ({
         staffType: "triage_nurse", id: n.nurseId, name: n.nurseName,
-        username: n.username, role: null, department: n.department.departmentName,
+        username: n.username, role: null, department: null,
       })),
       ...facilitators.map((f) => ({
         staffType: "facilitator", id: f.facilitatorId, name: f.facilitatorName,

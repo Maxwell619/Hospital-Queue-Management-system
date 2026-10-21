@@ -41,16 +41,16 @@ model Facilitator {
 
 model TriageNurse {
   nurseId       Int      @id @default(autoincrement()) @map("nurse_id")
-  facilitatorId Int      @map("facilitator_id")
+  facilitatorId Int?     @map("facilitator_id")
   nurseName     String   @map("nurse_name")
-  departmentId  Int      @map("department_id")
+  departmentId  Int?     @map("department_id")
   ticketNumber  Int?     @map("ticket_number")
   station       String?
   username      String   @unique
   passwordHash  String   @map("password_hash")
 
-  facilitator   Facilitator         @relation(fields: [facilitatorId], references: [facilitatorId])
-  department    Department          @relation(fields: [departmentId], references: [departmentId])
+  facilitator   Facilitator?        @relation(fields: [facilitatorId], references: [facilitatorId])
+  department    Department?         @relation(fields: [departmentId], references: [departmentId])
   receptionists Receptionist[]
   assignments   ServiceAssignment[]
 
@@ -134,6 +134,10 @@ model Ticket {
   notifications Notification[]
   services      Service[]
 
+      createdAt   DateTime  @default(now()) @map("created_at")
+     checkedInAt DateTime? @map("checked_in_at")
+     completedAt DateTime? @map("completed_at")
+
   @@map("ticket")
 }
 
@@ -146,6 +150,10 @@ model Service {
   ticket      Ticket              @relation(fields: [ticketNumber], references: [ticketNumber], onDelete: Cascade)
   facilitator Facilitator         @relation(fields: [facilitatorId], references: [facilitatorId])
   assignments ServiceAssignment[]
+
+    createdAt   DateTime  @default(now()) @map("created_at")
+     startedAt   DateTime? @map("started_at")
+     completedAt DateTime? @map("completed_at")
 
   @@map("service")
 }

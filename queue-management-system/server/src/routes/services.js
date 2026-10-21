@@ -4,6 +4,7 @@ const asyncHandler = require("../lib/asyncHandler");
 const ApiError = require("../lib/ApiError");
 const { authenticate, requireRole } = require("../middleware/authenticate");
 const { notify } = require("../services/notify");
+const { notifyTicketBySms } = require("../services/ticketSms");
 
 const router = Router();
 
@@ -52,6 +53,9 @@ router.get(
 
 // PATCH /api/services/:serviceId/start
 // pending -> in_progress, and the ticket follows.
+// A facilitator serves one patient at a time: starting another while one is
+// still in progress is refused. Check the current patient out first (the
+// dashboard's "Check out & call next" does both in order).
 router.patch(
   "/:serviceId/start",
   authenticate,
@@ -72,10 +76,17 @@ router.patch(
       throw new ApiError(409, `Cannot start a service with status "${service.completionStatus}"`);
     }
 
+    const alreadyServing = await prisma.service.count({
+      where: { facilitatorId: req.user.id, completionStatus: "in_progress" },
+    });
+    if (alreadyServing > 0) {
+      throw new ApiError(409, "Check out the patient you're serving before starting another");
+    }
+
     const [updatedService, updatedTicket] = await prisma.$transaction([
       prisma.service.update({
         where: { serviceId },
-        data: { completionStatus: "in_progress" },
+        data: { completionStatus: "in_progress", startedAt: new Date() },
       }),
       prisma.ticket.update({
         where: { ticketNumber: service.ticketNumber },
@@ -86,6 +97,7 @@ router.patch(
     const io = req.app.get("io");
     io.emit("ticket:updated", updatedTicket);
     await notify(io, updatedTicket, `Your ${ROLE_LABEL[service.facilitator.role] ?? "service"} has started.`);
+    notifyTicketBySms(updatedTicket.ticketNumber, "started"); // not awaited on purpose
 
     res.json(updatedService);
   })
@@ -117,11 +129,11 @@ router.patch(
     const [updatedService, updatedTicket] = await prisma.$transaction([
       prisma.service.update({
         where: { serviceId },
-        data: { completionStatus: "completed" },
+        data: { completionStatus: "completed", completedAt: new Date() },
       }),
       prisma.ticket.update({
         where: { ticketNumber: service.ticketNumber },
-        data: { status: "completed" },
+        data: { status: "completed", completedAt: new Date() },
       }),
       releaseLoad(prisma, service.facilitatorId),
     ]);
@@ -176,7 +188,7 @@ router.patch(
 
       await tx.service.update({
         where: { serviceId },
-        data: { completionStatus: "completed" },
+        data: { completionStatus: "completed", completedAt: new Date() },
       });
       await releaseLoad(tx, service.facilitatorId);
 
@@ -207,6 +219,7 @@ router.patch(
       result.ticket,
       `Please proceed to ${result.departmentName} for your ${ROLE_LABEL[targetRole]}.`
     );
+    notifyTicketBySms(result.ticket.ticketNumber, "referred"); // not awaited on purpose
 
     res.json({ ticket: result.ticket, service: result.nextService });
   })

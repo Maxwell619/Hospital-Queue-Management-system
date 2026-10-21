@@ -21,6 +21,7 @@ const reportRoutes = require('./routes/reports');
 const administratorRoutes = require('./routes/administrators');
 const serviceAssignmentRoutes = require('./routes/serviceAssignment');
 
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -50,11 +51,11 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/administrators', administratorRoutes);
 app.use('/api/service-assignment', serviceAssignmentRoutes);
 app.use('/api/staff', require('./routes/staff'));
+app.use('/api/ussd', require('./routes/ussd'));
+app.use('/api/analytics', require('./routes/Analytics'));
 
-// Must be registered after every route above: notFound catches anything
-// that didn't match, errorHandler turns thrown ApiErrors and Prisma
-// error codes (P2002/P2025/P2003) into proper status codes instead of
-// generic 500s or unhandled crashes.
+
+
 app.use(notFound);
 app.use(errorHandler);
 

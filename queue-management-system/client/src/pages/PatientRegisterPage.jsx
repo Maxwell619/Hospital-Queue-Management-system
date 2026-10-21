@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
+import { addTicket } from '../components/TicketHistory';
 
 export default function PatientRegisterPage() {
   const [serviceTypes, setServiceTypes] = useState([]);
@@ -51,15 +52,17 @@ export default function PatientRegisterPage() {
         { auth: false }
       );
 
+      // Remember this ticket so the sidebar can show a button for it.
+      // Must run before navigate() so the sidebar sees it on the ticket page.
+      addTicket(ticket.ticketNumber);
+
       navigate(`/ticket/${ticket.ticketNumber}`);
     } catch (err) {
       setError(err.message);
     } finally {
       setSubmitting(false);
     }
-    
   }
-
 
   return (
     <div className="page page-centered">
@@ -71,14 +74,31 @@ export default function PatientRegisterPage() {
         <input id="patientName" value={form.patientName} onChange={update('patientName')} required />
 
         <label htmlFor="phoneNumber">Phone number</label>
-        <input id="phoneNumber" value={form.phoneNumber} onChange={update('phoneNumber')} required minLength={10} maxLength={10}/>
+        <input
+          id="phoneNumber"
+          value={form.phoneNumber}
+          onChange={update('phoneNumber')}
+          required
+          minLength={10}
+          maxLength={10}
+        />
 
         <label htmlFor="dateOfBirth">Date of birth </label>
-        <input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={update('dateOfBirth')} max={today}/> 
-         
+        <input
+          id="dateOfBirth"
+          type="date"
+          value={form.dateOfBirth}
+          onChange={update('dateOfBirth')}
+          max={today}
+        />
 
         <label htmlFor="nationalId">National ID (optional)</label>
-        <input id="nationalId" value={form.nationalId} onChange={update('nationalId')} maxLength={8}/>
+        <input
+          id="nationalId"
+          value={form.nationalId}
+          onChange={update('nationalId')}
+          maxLength={8}
+        />
 
         <label htmlFor="serviceId">Service</label>
         <select id="serviceId" value={form.serviceId} onChange={update('serviceId')} required>
