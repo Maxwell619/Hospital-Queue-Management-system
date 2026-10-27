@@ -35,6 +35,7 @@ model Facilitator {
   receptionists Receptionist[]
   services      Service[]
   assignments   ServiceAssignment[]
+  room String? @map("room")
 
   @@map("facilitator")
 }

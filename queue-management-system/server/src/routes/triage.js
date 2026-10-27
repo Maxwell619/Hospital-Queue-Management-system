@@ -4,7 +4,8 @@ const prisma = require('../db');
 const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
 const { authenticate, requireRole } = require('../middleware/authenticate');
-const { notifyTicketBySms } = require('../services/ticketsms');
+const { notifyTicketBySms } = require('../services/ticketSms');
+
 
 router.post(
   '/:ticketNumber',
@@ -80,6 +81,7 @@ router.post(
           facilitatorId: facilitator.facilitatorId,
           facilitatorName: facilitator.facilitatorName,
           role: facilitator.role,
+          room: facilitator.room || department.roomName || null,
         },
         department,
       };

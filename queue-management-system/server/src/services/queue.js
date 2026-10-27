@@ -61,4 +61,38 @@ async function getQueueInfo(ticket) {
   return { position, estimatedWaitMinutes };
 }
 
-module.exports = { MINUTES_PER_PATIENT, getDefaultDepartmentId, getQueueInfo };
+// Who is dealing with this ticket right now and where to find them: the staff
+// member on the ticket's open service (waiting or in progress). Their own room
+// is used, falling back to the department's room. Null if the ticket has no
+// open service (not triaged yet, finished or cancelled).
+async function getAssignment(ticket) {
+  const service = await prisma.service.findFirst({
+    where: {
+      ticketNumber: ticket.ticketNumber,
+      completionStatus: { in: ['pending', 'in_progress'] },
+    },
+    orderBy: { serviceId: 'desc' },
+    include: {
+      facilitator: {
+        select: {
+          facilitatorName: true,
+          role: true,
+          room: true,
+          department: { select: { departmentName: true, roomName: true } },
+        },
+      },
+    },
+  });
+  if (!service) return null;
+
+  const f = service.facilitator;
+  return {
+    staffName: f.facilitatorName,
+    role: f.role,
+    department: f.department?.departmentName || null,
+    room: f.room || f.department?.roomName || null,
+    status: service.completionStatus,
+  };
+}
+
+module.exports = { MINUTES_PER_PATIENT, getDefaultDepartmentId, getQueueInfo, getAssignment };

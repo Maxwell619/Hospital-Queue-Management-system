@@ -102,6 +102,19 @@ export default function PatientTicketPage() {
           </div>
         )}
 
+        {ticket.assignment && (
+          <>
+            <div className="status-row">
+              <span className="status-label">Go to</span>
+              <span>{ticket.assignment.room || 'Ask at the department desk'}</span>
+            </div>
+            <div className="status-row">
+              <span className="status-label">You will see</span>
+              <span>{ticket.assignment.staffName}</span>
+            </div>
+          </>
+        )}
+
         {ticket.position != null && (
           <>
             <div className="status-row">

@@ -120,7 +120,8 @@ export default function StaffDashboardPage() {
       });
       // The row disappears from this list once routed, so say where it went.
       setNotice(
-        `Ticket #${ticketNumber} routed to ${result.department.departmentName} — ` +
+        `Ticket #${ticketNumber} routed to ${result.department.departmentName}` +
+          `${result.facilitator.room ? `, ${result.facilitator.room}` : ''} — ` +
           `assigned to ${result.facilitator.facilitatorName}.`
       );
       await refreshQueue();

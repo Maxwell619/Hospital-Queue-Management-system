@@ -14,10 +14,12 @@ const STAFF_TYPES = ["facilitator", "triage_nurse", "receptionist", "administrat
 const FACILITATOR_ROLES = ["doctor", "labstaff", "pharmacist"];
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,30}$/;
 const MIN_PASSWORD_LENGTH = 8;
+const MAX_ROOM_LENGTH = 40;
 
 // POST /api/staff
-// Body: { staffType, name, username, password, departmentId?, role?, station? }
-//   facilitator   -> needs departmentId and role (doctor | labstaff | pharmacist)
+// Body: { staffType, name, username, password, departmentId?, role?, station?, room? }
+//   facilitator   -> needs departmentId and role (doctor | labstaff | pharmacist);
+//                    room is optional (e.g. "Room 3") and is where patients are sent
 //   triage_nurse  -> no department; station optional
 //   receptionist  -> no department; station optional
 //   administrator -> no department
@@ -29,7 +31,7 @@ const MIN_PASSWORD_LENGTH = 8;
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { staffType, name, username, password, departmentId, role, station } = req.body;
+    const { staffType, name, username, password, departmentId, role, station, room } = req.body;
 
     if (!STAFF_TYPES.includes(staffType)) {
       throw new ApiError(400, `staffType must be one of: ${STAFF_TYPES.join(", ")}`);
@@ -61,6 +63,7 @@ router.post(
 
     const cleanName = name.trim();
     const cleanStation = typeof station === "string" && station.trim() ? station.trim() : undefined;
+    const cleanRoom = typeof room === "string" && room.trim() ? room.trim().slice(0, MAX_ROOM_LENGTH) : null;
     const passwordHash = await bcrypt.hash(password, 10);
 
     let created;
@@ -71,11 +74,12 @@ router.post(
             facilitatorName: cleanName,
             departmentId: department.departmentId,
             role,
+            room: cleanRoom,
             username,
             passwordHash,
           },
         });
-        created = { id: row.facilitatorId, role: row.role };
+        created = { id: row.facilitatorId, role: row.role, room: row.room };
       } else if (staffType === "triage_nurse") {
         const row = await prisma.triageNurse.create({
           data: {
@@ -133,6 +137,7 @@ router.get(
           facilitatorName: true,
           username: true,
           role: true,
+          room: true,
           department: { select: { departmentName: true } },
         },
       }),
@@ -165,9 +170,40 @@ router.get(
       })),
       ...facilitators.map((f) => ({
         staffType: "facilitator", id: f.facilitatorId, name: f.facilitatorName,
-        username: f.username, role: f.role, department: f.department.departmentName,
+        username: f.username, role: f.role, room: f.room, department: f.department.departmentName,
       })),
     ]);
+  })
+);
+
+// PATCH /api/staff/facilitator/:id      body: { room: "Room 3" }
+// Sets the room patients are sent to for this staff member. An empty string
+// clears it (the department's room, if any, is used instead).
+router.patch(
+  "/facilitator/:id",
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) throw new ApiError(400, "id must be an integer");
+    if (typeof req.body.room !== "string") {
+      throw new ApiError(400, "room is required (send an empty string to clear it)");
+    }
+    const room = req.body.room.trim();
+    if (room.length > MAX_ROOM_LENGTH) {
+      throw new ApiError(400, `room must be at most ${MAX_ROOM_LENGTH} characters`);
+    }
+
+    let row;
+    try {
+      row = await prisma.facilitator.update({
+        where: { facilitatorId: id },
+        data: { room: room || null },
+        select: { facilitatorId: true, facilitatorName: true, room: true },
+      });
+    } catch (err) {
+      if (err.code === "P2025") throw new ApiError(404, "Staff member not found");
+      throw err;
+    }
+    res.json(row);
   })
 );
 

@@ -443,12 +443,8 @@ export default function AnalyticsPage() {
             <button onClick={() => setReloadKey((k) => k + 1)} disabled={loading}>
               Refresh
             </button>
-            <button onClick={() => data && downloadCsv(buildSummaryCsv(data), filename('report'))} disabled={!data}>
-              Download report (CSV)
-            </button>
-            <button onClick={handleTicketsCsv} disabled={!data || exporting}>
-              {exporting ? 'Preparing…' : 'Download ticket data (CSV)'}
-            </button>
+           
+            
             <button onClick={() => window.print()} disabled={!data}>
               Print / Save as PDF
             </button>

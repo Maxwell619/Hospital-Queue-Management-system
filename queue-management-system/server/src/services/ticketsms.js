@@ -1,13 +1,18 @@
 const prisma = require('../db');
 const { sendSms } = require('./sms');
-const { getQueueInfo } = require('./queue');
+const { getQueueInfo, getAssignment } = require('./queue');
 
 function waitText(position, estimatedWaitMinutes) {
   if (position == null) return '';
   return ` Position ${position}, est. wait ${estimatedWaitMinutes} min.`;
 }
 
-function buildMessage(event, ticket, info) {
+// "Dermatology, Room 3" (or just "Dermatology" if no room is set)
+function whereText(ticket, assignment) {
+  return [ticket.department?.departmentName, assignment?.room].filter(Boolean).join(', ');
+}
+
+function buildMessage(event, ticket, info, assignment) {
   const n = ticket.ticketNumber;
   switch (event) {
     case 'created':
@@ -15,11 +20,11 @@ function buildMessage(event, ticket, info) {
     case 'checked_in':
       return `Ticket #${n}: you're checked in.${waitText(info.position, info.estimatedWaitMinutes)}`;
     case 'started':
-      return `Ticket #${n}: it's your turn. Please proceed to ${ticket.department?.departmentName}.`;
+      return `Ticket #${n}: it's your turn. Please proceed to ${whereText(ticket, assignment)}.`;
     case 'triaged':
     case 'referred':
       return (
-        `Ticket #${n}: please go to ${ticket.department?.departmentName}.` +
+        `Ticket #${n}: please go to ${whereText(ticket, assignment)}.` +
         waitText(info.position, info.estimatedWaitMinutes)
       );
     default:
@@ -27,9 +32,10 @@ function buildMessage(event, ticket, info) {
   }
 }
 
-// Text the patient about their ticket. `event` is 'created', 'checked_in' or
-// 'triaged', 'referred' or 'started'. Call it without await: it never throws and never blocks the
-// response, and it records each attempt in the Notification table.
+// Text the patient about their ticket. `event` is 'created', 'checked_in',
+// 'triaged', 'referred' or 'started'. Call it without await: it never throws
+// and never blocks the response, and it records each attempt in the
+// Notification table.
 async function notifyTicketBySms(ticketNumber, event) {
   try {
     const ticket = await prisma.ticket.findUnique({
@@ -38,7 +44,8 @@ async function notifyTicketBySms(ticketNumber, event) {
     });
     if (!ticket?.patient?.phoneNumber) return;
 
-    const message = buildMessage(event, ticket, await getQueueInfo(ticket));
+    const [info, assignment] = await Promise.all([getQueueInfo(ticket), getAssignment(ticket)]);
+    const message = buildMessage(event, ticket, info, assignment);
     if (!message) return;
 
     const result = await sendSms(ticket.patient.phoneNumber, message);

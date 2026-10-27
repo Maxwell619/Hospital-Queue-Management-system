@@ -32,9 +32,12 @@ function blankForm(staffType = 'facilitator') {
     password: randomPassword(),
     departmentId: '',
     role: 'doctor',
+    room: '',
     station: '',
   };
 }
+
+const rowKey = (s) => `${s.staffType}-${s.id}`;
 
 export default function AdminStaffPanel() {
   const [form, setForm] = useState(blankForm);
@@ -43,6 +46,9 @@ export default function AdminStaffPanel() {
   const [created, setCreated] = useState(null); // shown once, includes the password
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Unsaved room edits for existing facilitators: { [rowKey]: text }
+  const [roomEdits, setRoomEdits] = useState({});
+  const [savingRoom, setSavingRoom] = useState(null);
 
   // Only facilitators belong to a department. Nurses and receptionists work
   // across the whole hospital; administrators have no department either.
@@ -89,7 +95,10 @@ export default function AdminStaffPanel() {
         password: form.password,
       };
       if (needsDepartment) body.departmentId = Number(form.departmentId);
-      if (form.staffType === 'facilitator') body.role = form.role;
+      if (form.staffType === 'facilitator') {
+        body.role = form.role;
+        if (form.room.trim()) body.room = form.room.trim();
+      }
       if (needsStation && form.station.trim()) body.station = form.station.trim();
 
       const person = await api.post('/api/staff', body);
@@ -100,6 +109,25 @@ export default function AdminStaffPanel() {
       setError(err.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveRoom(s) {
+    const key = rowKey(s);
+    setSavingRoom(key);
+    setError(null);
+    try {
+      await api.patch(`/api/staff/facilitator/${s.id}`, { room: (roomEdits[key] ?? '').trim() });
+      setRoomEdits((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      await loadStaff();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingRoom(null);
     }
   }
 
@@ -131,12 +159,6 @@ export default function AdminStaffPanel() {
           ))}
         </select>
 
-        {needsStation && (
-          <p style={{ fontSize: '0.85rem', color: '#666' }}>
-          
-          </p>
-        )}
-
         {form.staffType === 'facilitator' && (
           <>
             <label htmlFor="role">Role</label>
@@ -157,7 +179,7 @@ export default function AdminStaffPanel() {
               id="departmentId"
               value={form.departmentId}
               onChange={(e) => update('departmentId', e.target.value)}
-             required
+              required
             >
               {departments.map((d) => (
                 <option key={d.departmentId} value={d.departmentId}>
@@ -165,6 +187,15 @@ export default function AdminStaffPanel() {
                 </option>
               ))}
             </select>
+
+            <label htmlFor="room">Room (optional)</label>
+            <input
+              id="room"
+              value={form.room}
+              onChange={(e) => update('room', e.target.value)}
+              placeholder="e.g. Room 3"
+              maxLength={40}
+            />
           </>
         )}
 
@@ -202,27 +233,66 @@ export default function AdminStaffPanel() {
       </form>
 
       <h3 style={{ marginTop: '1.5rem' }}>Current staff</h3>
+      <p style={{ fontSize: '0.85rem', color: '#666' }}>
+        Patients are sent to the room of the staff member they're assigned to. Write it the way you want
+        patients to read it, for example "Room 3".
+      </p>
       <table className="queue-table">
         <thead>
           <tr>
             <th>Name</th>
             <th>Type</th>
             <th>Department</th>
+            <th>Room</th>
             <th>Username</th>
           </tr>
         </thead>
         <tbody>
-          {staff.map((s) => (
-            <tr key={`${s.staffType}-${s.id}`}>
-              <td>{s.name}</td>
-              <td>{s.role ? FACILITATOR_ROLES.find((r) => r.value === s.role)?.label ?? s.role : TYPE_LABEL[s.staffType]}</td>
-              <td>{s.department ?? '—'}</td>
-              <td>{s.username}</td>
-            </tr>
-          ))}
+          {staff.map((s) => {
+            const key = rowKey(s);
+            const isFacilitator = s.staffType === 'facilitator';
+            const edited = roomEdits[key];
+            const current = s.room ?? '';
+            const dirty = edited !== undefined && edited.trim() !== current;
+            return (
+              <tr key={key}>
+                <td>{s.name}</td>
+                <td>
+                  {s.role
+                    ? FACILITATOR_ROLES.find((r) => r.value === s.role)?.label ?? s.role
+                    : TYPE_LABEL[s.staffType]}
+                </td>
+                <td>{s.department ?? '—'}</td>
+                <td>
+                  {isFacilitator ? (
+                    <span style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                      <input
+                        value={edited ?? current}
+                        onChange={(e) => setRoomEdits((prev) => ({ ...prev, [key]: e.target.value }))}
+                        placeholder="Not set"
+                        maxLength={40}
+                        aria-label={`Room for ${s.name}`}
+                        style={{ width: '9rem', margin: 0 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => saveRoom(s)}
+                        disabled={!dirty || savingRoom === key}
+                        style={{ width: 'auto', margin: 0 }}
+                      >
+                        {savingRoom === key ? 'Saving…' : 'Save'}
+                      </button>
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td>{s.username}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </section>
-    
   );
 }

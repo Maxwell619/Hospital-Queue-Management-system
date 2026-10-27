@@ -4,7 +4,7 @@ const prisma = require('../db');
 const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
 const { notify } = require('../services/notify');
-const { getDefaultDepartmentId, getQueueInfo } = require('../services/queue');
+const { getDefaultDepartmentId, getQueueInfo, getAssignment } = require('../services/queue');
 const { notifyTicketBySms } = require('../services/ticketSms');
 
 router.post(
@@ -60,9 +60,12 @@ router.get(
     });
     if (!ticket) throw new ApiError(404, 'Ticket not found');
 
-    const { position, estimatedWaitMinutes } = await getQueueInfo(ticket);
+    const [{ position, estimatedWaitMinutes }, assignment] = await Promise.all([
+      getQueueInfo(ticket),
+      getAssignment(ticket),
+    ]);
 
-    res.json({ ...ticket, position, estimatedWaitMinutes });
+    res.json({ ...ticket, position, estimatedWaitMinutes, assignment });
   })
 );
 

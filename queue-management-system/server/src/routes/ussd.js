@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../db');
-const { getDefaultDepartmentId, getQueueInfo } = require('../services/queue');
-const { notifyTicketBySms } = require('../services/ticketsms');
+const { getDefaultDepartmentId, getQueueInfo, getAssignment } = require('../services/queue');
+const { notifyTicketBySms } = require('../services/ticketSms');
 
 // The gateway posts form-encoded data (not JSON).
 router.use(express.urlencoded({ extended: false }));
@@ -97,7 +97,10 @@ async function ticketStatus(phone) {
   const ticket = await latestTicket(phone);
   if (!ticket) return 'END No ticket found for this number.';
 
-  const { position, estimatedWaitMinutes } = await getQueueInfo(ticket);
+  const [{ position, estimatedWaitMinutes }, assignment] = await Promise.all([
+    getQueueInfo(ticket),
+    getAssignment(ticket),
+  ]);
   const lines = [
     `Ticket #${ticket.ticketNumber}`,
     `Status: ${STATUS_LABELS[ticket.status] || ticket.status}`,
@@ -105,6 +108,8 @@ async function ticketStatus(phone) {
   if (!NOT_ROUTED_YET.includes(ticket.status)) {
     lines.push(`Dept: ${ticket.department?.departmentName}`);
   }
+  if (assignment?.room) lines.push(`Go to: ${assignment.room}`);
+  if (assignment?.staffName) lines.push(`With: ${assignment.staffName}`);
   if (position != null) {
     lines.push(`Position: ${position}`, `Est. wait: ${estimatedWaitMinutes} min`);
   }
@@ -145,12 +150,7 @@ async function handleUssd(req) {
   return 'END Invalid choice. Please dial again.';
 }
 
-// POST /api/ussd/:secret
-// The gateway can't send an auth token, so the callback URL itself carries a
-// secret (USSD_SECRET in .env). Anything else gets a 404.
-// Every response must start with CON (keep the session open) or END (close it),
-// and must be plain text, so errors are caught here instead of going to the
-// app's JSON error handler.
+
 router.post('/:secret', async (req, res) => {
   const secret = process.env.USSD_SECRET;
   if (!secret || req.params.secret !== secret) return res.sendStatus(404);
