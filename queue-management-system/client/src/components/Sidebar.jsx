@@ -25,6 +25,12 @@ const PAGES = [
     path: '/analytics',
     roles: ['administrator'],
   },
+  {
+    group: 'Staff',
+    label: 'Feedback',
+    path: '/feedback',
+    roles: ['administrator'],
+  },
   // Add an Admin entry here when you create an /admin route.
 ];
 

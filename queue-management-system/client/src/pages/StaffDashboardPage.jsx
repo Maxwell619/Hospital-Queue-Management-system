@@ -222,7 +222,9 @@ export default function StaffDashboardPage() {
 
  
 
-  <button onClick={() => navigate('/analytics')}>View analytics</button>
+  <button onClick={() => navigate('/analytics')}>View analytics </button> 
+  
+  
 
   function handleLogout() {
     logout();
@@ -253,6 +255,7 @@ export default function StaffDashboardPage() {
               <p>View analytics and generate a report of completed tickets across all departments.</p>
               
               <button onClick={() => navigate('/analytics')}>View analytics</button>
+              <button onClick={()=> navigate('/feedback')}>View feedback</button>
             </section>
             <AdminStaffPanel />
           </>

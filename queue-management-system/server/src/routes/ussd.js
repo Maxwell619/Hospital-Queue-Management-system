@@ -3,12 +3,14 @@ const router = express.Router();
 const prisma = require('../db');
 const { getDefaultDepartmentId, getQueueInfo, getAssignment } = require('../services/queue');
 const { notifyTicketBySms } = require('../services/ticketSms');
+const { submitFeedback } = require('../services/feedback');
+const ApiError = require('../lib/ApiError');
 
 // The gateway posts form-encoded data (not JSON).
 router.use(express.urlencoded({ extended: false }));
 
 const MAIN_MENU =
-  'CON Queue Management\n1. Join queue\n2. Check my ticket\n3. Cancel my ticket';
+  'CON Queue Management\n1. Join queue\n2. Check my ticket\n3. Cancel my ticket\n4. Give feedback';
 
 const STATUS_LABELS = {
   pending: 'Awaiting check-in at reception',
@@ -137,6 +139,42 @@ async function cancelTicket(phone, rest, req) {
   return `END Ticket #${ticket.ticketNumber} has been cancelled.`;
 }
 
+// 4 -> rate the most recent completed visit, then an optional comment
+async function giveFeedback(phone, rest) {
+  const ticket = await prisma.ticket.findFirst({
+    where: { status: 'completed', patient: { phoneNumber: phone } },
+    orderBy: { ticketNumber: 'desc' },
+    include: { feedback: true },
+  });
+  if (!ticket) return 'END No completed visit found for this number yet.';
+  if (ticket.feedback) {
+    return `END We already have your feedback for ticket #${ticket.ticketNumber}. Thank you!`;
+  }
+
+  if (rest.length === 0) {
+    return `CON Ticket #${ticket.ticketNumber}\nRate your visit:\n1. Very poor\n2. Poor\n3. Okay\n4. Good\n5. Excellent`;
+  }
+
+  const rating = Number(rest[0]);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return 'END Invalid choice. Please dial again.';
+  if (rest.length === 1) return 'CON Add a comment, or reply 0 to skip:';
+
+  // Anything typed with a "*" arrives as extra answers, so join them back up.
+  const typed = rest.slice(1).join(' ').trim();
+  try {
+    await submitFeedback({
+      ticketNumber: ticket.ticketNumber,
+      rating,
+      comment: typed === '0' ? null : typed,
+      channel: 'ussd',
+    });
+  } catch (err) {
+    if (err instanceof ApiError) return `END ${err.message}`;
+    throw err;
+  }
+  return 'END Thank you for your feedback!';
+}
+
 async function handleUssd(req) {
   const phone = toLocalNumber(req.body.phoneNumber);
   const steps = req.body.text ? String(req.body.text).split('*') : [];
@@ -147,9 +185,9 @@ async function handleUssd(req) {
   if (choice === '1') return joinQueue(phone, rest);
   if (choice === '2') return ticketStatus(phone);
   if (choice === '3') return cancelTicket(phone, rest, req);
+  if (choice === '4') return giveFeedback(phone, rest);
   return 'END Invalid choice. Please dial again.';
 }
-
 
 router.post('/:secret', async (req, res) => {
   const secret = process.env.USSD_SECRET;

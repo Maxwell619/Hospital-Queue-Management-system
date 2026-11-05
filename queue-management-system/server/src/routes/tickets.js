@@ -6,6 +6,7 @@ const ApiError = require('../lib/ApiError');
 const { notify } = require('../services/notify');
 const { getDefaultDepartmentId, getQueueInfo, getAssignment } = require('../services/queue');
 const { notifyTicketBySms } = require('../services/ticketSms');
+const { submitFeedback } = require('../services/feedback');
 
 router.post(
   '/',
@@ -56,7 +57,12 @@ router.get(
 
     const ticket = await prisma.ticket.findUnique({
       where: { ticketNumber },
-      include: { patient: true, serviceType: true, department: true },
+      include: {
+        patient: true,
+        serviceType: true,
+        department: true,
+        feedback: { select: { rating: true, comment: true, createdAt: true } },
+      },
     });
     if (!ticket) throw new ApiError(404, 'Ticket not found');
 
@@ -91,6 +97,22 @@ router.get(
     });
 
     res.json(tickets);
+  })
+);
+
+// POST /api/tickets/:ticketNumber/feedback      body: { rating: 1-5, comment?: string }
+// The patient rates a completed visit from the ticket page. Like the other
+// patient-facing ticket routes, it has no login.
+router.post(
+  '/:ticketNumber/feedback',
+  asyncHandler(async (req, res) => {
+    const saved = await submitFeedback({
+      ticketNumber: req.params.ticketNumber,
+      rating: req.body.rating,
+      comment: req.body.comment,
+      channel: 'web',
+    });
+    res.status(201).json({ rating: saved.rating, comment: saved.comment, createdAt: saved.createdAt });
   })
 );
 

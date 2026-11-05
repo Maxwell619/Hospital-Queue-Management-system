@@ -53,6 +53,7 @@ app.use('/api/service-assignment', serviceAssignmentRoutes);
 app.use('/api/staff', require('./routes/staff'));
 app.use('/api/ussd', require('./routes/ussd'));
 app.use('/api/analytics', require('./routes/Analytics'));
+app.use('/api/feedback', require('./routes/feedback'));
 
 
 

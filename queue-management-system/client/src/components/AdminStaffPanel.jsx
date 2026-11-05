@@ -233,10 +233,7 @@ export default function AdminStaffPanel() {
       </form>
 
       <h3 style={{ marginTop: '1.5rem' }}>Current staff</h3>
-      <p style={{ fontSize: '0.85rem', color: '#666' }}>
-        Patients are sent to the room of the staff member they're assigned to. Write it the way you want
-        patients to read it, for example "Room 3".
-      </p>
+     
       <table className="queue-table">
         <thead>
           <tr>

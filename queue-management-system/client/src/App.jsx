@@ -5,6 +5,7 @@ import AppLayout from './components/AppLayout';
 import LoginPage from './pages/LoginPage';
 import StaffDashboardPage from './pages/StaffDashboardPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import FeedbackPage from './pages/FeedbackPage';
 import PatientRegisterPage from './pages/PatientRegisterPage';
 import PatientTicketPage from './pages/PatientTicketPage';
 
@@ -34,6 +35,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <AnalyticsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/feedback"
+              element={
+                <ProtectedRoute>
+                  <FeedbackPage />
                 </ProtectedRoute>
               }
             />

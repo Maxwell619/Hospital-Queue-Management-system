@@ -17,11 +17,17 @@ const STATUS_LABELS = {
 // patient will actually visit, so the department is shown only after routing.
 const NOT_ROUTED_YET = ['pending', 'checked_in', 'cancelled'];
 
+const RATING_LABELS = { 1: 'Very poor', 2: 'Poor', 3: 'Okay', 4: 'Good', 5: 'Excellent' };
+const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+
 export default function PatientTicketPage() {
   const { ticketNumber } = useParams();
   const [ticket, setTicket] = useState(null);
   const [error, setError] = useState(null);
   const [cancelling, setCancelling] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [sendingFeedback, setSendingFeedback] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +59,24 @@ export default function PatientTicketPage() {
       setError(err.message);
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleFeedback() {
+    if (!rating) return;
+    setSendingFeedback(true);
+    setError(null);
+    try {
+      await api.post(
+        `/api/tickets/${ticketNumber}/feedback`,
+        { rating, comment: comment.trim() || undefined },
+        { auth: false }
+      );
+      await refresh(); // the ticket now carries the saved feedback
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSendingFeedback(false);
     }
   }
 
@@ -127,6 +151,57 @@ export default function PatientTicketPage() {
             </div>
           </>
         )}
+
+        {ticket.status === 'completed' &&
+          (ticket.feedback ? (
+            <div className="status-row">
+              <span className="status-label">Your feedback</span>
+              <span>
+                {stars(ticket.feedback.rating)} Thank you!
+              </span>
+            </div>
+          ) : (
+            <div style={{ marginTop: '1rem' }}>
+              <strong>How was your visit?</strong>
+              <div role="group" aria-label="Rating" style={{ display: 'flex', gap: '0.25rem', margin: '0.5rem 0' }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setRating(n)}
+                    aria-pressed={rating === n}
+                    aria-label={`${n} out of 5: ${RATING_LABELS[n]}`}
+                    style={{
+                      width: 'auto',
+                      fontSize: '1.5rem',
+                      lineHeight: 1,
+                      padding: '0.25rem 0.55rem',
+                      background: n <= rating ? '#f5b301' : '#fff',
+                      color: n <= rating ? '#fff' : '#999',
+                      border: '1px solid #ccc',
+                    }}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+              <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: '#666' }}>
+                {rating ? RATING_LABELS[rating] : 'Tap a star to rate'}
+              </p>
+              <label htmlFor="feedbackComment">Comments (optional)</label>
+              <textarea
+                id="feedbackComment"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                maxLength={500}
+                rows={3}
+                style={{ width: '100%', boxSizing: 'border-box', font: 'inherit', marginBottom: '0.5rem' }}
+              />
+              <button onClick={handleFeedback} disabled={!rating || sendingFeedback}>
+                {sendingFeedback ? 'Sending…' : 'Send feedback'}
+              </button>
+            </div>
+          ))}
 
         {error && <p className="error">{error}</p>}
 
