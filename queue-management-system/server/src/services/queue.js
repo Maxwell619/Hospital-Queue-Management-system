@@ -1,7 +1,7 @@
 const prisma = require('../db');
 const ApiError = require('../lib/ApiError');
 
-const MINUTES_PER_PATIENT = 7; // placeholder estimate until real service-time data exists
+const MINUTES_PER_PATIENT = 20; // placeholder estimate until real service-time data exists
 
 // New tickets start in the first active department until triage routes them.
 async function getDefaultDepartmentId() {
@@ -62,8 +62,8 @@ async function getQueueInfo(ticket) {
 }
 
 // Who is dealing with this ticket right now and where to find them: the staff
-// member on the ticket's open service (waiting or in progress). Their own room
-// is used, falling back to the department's room. Null if the ticket has no
+// member on the ticket's open service (waiting or in progress). Their assigned
+// room, lab or pharmacy is used, falling back to the department's room. Null if the ticket has no
 // open service (not triaged yet, finished or cancelled).
 async function getAssignment(ticket) {
   const service = await prisma.service.findFirst({
@@ -77,7 +77,8 @@ async function getAssignment(ticket) {
         select: {
           facilitatorName: true,
           role: true,
-          room: true,
+          room: true, // old free-text room, used only until migrateRooms.js has been run
+          assignedRoom: { select: { roomName: true } },
           department: { select: { departmentName: true, roomName: true } },
         },
       },
@@ -90,7 +91,7 @@ async function getAssignment(ticket) {
     staffName: f.facilitatorName,
     role: f.role,
     department: f.department?.departmentName || null,
-    room: f.room || f.department?.roomName || null,
+    room: f.assignedRoom?.roomName || f.room || f.department?.roomName || null,
     status: service.completionStatus,
   };
 }

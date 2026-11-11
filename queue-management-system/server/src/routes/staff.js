@@ -4,6 +4,7 @@ const prisma = require("../db");
 const asyncHandler = require("../lib/asyncHandler");
 const ApiError = require("../lib/ApiError");
 const { authenticate, requireRole } = require("../middleware/authenticate");
+const { checkRoomFits } = require("../services/rooms");
 
 const router = Router();
 
@@ -14,12 +15,12 @@ const STAFF_TYPES = ["facilitator", "triage_nurse", "receptionist", "administrat
 const FACILITATOR_ROLES = ["doctor", "labstaff", "pharmacist"];
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,30}$/;
 const MIN_PASSWORD_LENGTH = 8;
-const MAX_ROOM_LENGTH = 40;
 
 // POST /api/staff
-// Body: { staffType, name, username, password, departmentId?, role?, station?, room? }
+// Body: { staffType, name, username, password, departmentId?, role?, station?, roomId? }
 //   facilitator   -> needs departmentId and role (doctor | labstaff | pharmacist);
-//                    room is optional (e.g. "Room 3") and is where patients are sent
+//                    roomId is optional: a room, lab or pharmacy created under Rooms
+//                    (doctor -> room, labstaff -> lab, pharmacist -> pharmacy)
 //   triage_nurse  -> no department; station optional
 //   receptionist  -> no department; station optional
 //   administrator -> no department
@@ -31,7 +32,7 @@ const MAX_ROOM_LENGTH = 40;
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { staffType, name, username, password, departmentId, role, station, room } = req.body;
+    const { staffType, name, username, password, departmentId, role, station, roomId } = req.body;
 
     if (!STAFF_TYPES.includes(staffType)) {
       throw new ApiError(400, `staffType must be one of: ${STAFF_TYPES.join(", ")}`);
@@ -61,9 +62,18 @@ router.post(
       }
     }
 
+    // Optional: a room, lab or pharmacy the admin has already created.
+    let assignedRoom = null;
+    if (staffType === "facilitator" && roomId != null && roomId !== "") {
+      const rid = Number(roomId);
+      if (!Number.isInteger(rid)) throw new ApiError(400, "roomId must be an integer");
+      assignedRoom = await prisma.room.findUnique({ where: { roomId: rid } });
+      if (!assignedRoom) throw new ApiError(404, "Room not found");
+      checkRoomFits(assignedRoom, { role, departmentId: department.departmentId });
+    }
+
     const cleanName = name.trim();
     const cleanStation = typeof station === "string" && station.trim() ? station.trim() : undefined;
-    const cleanRoom = typeof room === "string" && room.trim() ? room.trim().slice(0, MAX_ROOM_LENGTH) : null;
     const passwordHash = await bcrypt.hash(password, 10);
 
     let created;
@@ -74,12 +84,12 @@ router.post(
             facilitatorName: cleanName,
             departmentId: department.departmentId,
             role,
-            room: cleanRoom,
+            roomId: assignedRoom ? assignedRoom.roomId : null,
             username,
             passwordHash,
           },
         });
-        created = { id: row.facilitatorId, role: row.role, room: row.room };
+        created = { id: row.facilitatorId, role: row.role, roomId: row.roomId, room: assignedRoom ? assignedRoom.roomName : null };
       } else if (staffType === "triage_nurse") {
         const row = await prisma.triageNurse.create({
           data: {
@@ -137,7 +147,10 @@ router.get(
           facilitatorName: true,
           username: true,
           role: true,
-          room: true,
+          departmentId: true,
+          room: true, // old free-text room, shown until migrateRooms.js has been run
+          roomId: true,
+          assignedRoom: { select: { roomName: true } },
           department: { select: { departmentName: true } },
         },
       }),
@@ -170,40 +183,52 @@ router.get(
       })),
       ...facilitators.map((f) => ({
         staffType: "facilitator", id: f.facilitatorId, name: f.facilitatorName,
-        username: f.username, role: f.role, room: f.room, department: f.department.departmentName,
+        username: f.username, role: f.role, departmentId: f.departmentId, roomId: f.roomId,
+        room: f.assignedRoom?.roomName ?? f.room ?? null, department: f.department.departmentName,
       })),
     ]);
   })
 );
 
-// PATCH /api/staff/facilitator/:id      body: { room: "Room 3" }
-// Sets the room patients are sent to for this staff member. An empty string
-// clears it (the department's room, if any, is used instead).
+// PATCH /api/staff/facilitator/:id      body: { roomId: 3 }   or   { roomId: null } to unassign
+// Gives a facilitator the room, lab or pharmacy patients are sent to. The room
+// must be the right type for their role and, if it belongs to a department,
+// the same department as the staff member.
 router.patch(
   "/facilitator/:id",
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) throw new ApiError(400, "id must be an integer");
-    if (typeof req.body.room !== "string") {
-      throw new ApiError(400, "room is required (send an empty string to clear it)");
-    }
-    const room = req.body.room.trim();
-    if (room.length > MAX_ROOM_LENGTH) {
-      throw new ApiError(400, `room must be at most ${MAX_ROOM_LENGTH} characters`);
+    if (!("roomId" in req.body)) {
+      throw new ApiError(400, "roomId is required (send null to unassign)");
     }
 
-    let row;
-    try {
-      row = await prisma.facilitator.update({
-        where: { facilitatorId: id },
-        data: { room: room || null },
-        select: { facilitatorId: true, facilitatorName: true, room: true },
-      });
-    } catch (err) {
-      if (err.code === "P2025") throw new ApiError(404, "Staff member not found");
-      throw err;
+    const staff = await prisma.facilitator.findUnique({
+      where: { facilitatorId: id },
+      select: { facilitatorId: true, facilitatorName: true, role: true, departmentId: true },
+    });
+    if (!staff) throw new ApiError(404, "Staff member not found");
+
+    let room = null;
+    if (req.body.roomId !== null) {
+      const rid = Number(req.body.roomId);
+      if (!Number.isInteger(rid)) throw new ApiError(400, "roomId must be an integer or null");
+      room = await prisma.room.findUnique({ where: { roomId: rid } });
+      if (!room) throw new ApiError(404, "Room not found");
+      checkRoomFits(room, staff);
     }
-    res.json(row);
+
+    // `room: null` also clears the old free-text room so it can't linger.
+    await prisma.facilitator.update({
+      where: { facilitatorId: id },
+      data: { roomId: room ? room.roomId : null, room: null },
+    });
+    res.json({
+      facilitatorId: staff.facilitatorId,
+      facilitatorName: staff.facilitatorName,
+      roomId: room ? room.roomId : null,
+      room: room ? room.roomName : null,
+    });
   })
 );
 

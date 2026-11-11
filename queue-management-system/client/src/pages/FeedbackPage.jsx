@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import './Analytics.css'; // shares the an-* card, KPI and print styles
+import './Analytics.css'; 
 
 const RATING_COLORS = { 1: '#dc2626', 2: '#ea580c', 3: '#d97706', 4: '#65a30d', 5: '#16a34a' };
 const RATING_LABELS = { 1: 'Very poor', 2: 'Poor', 3: 'Okay', 4: 'Good', 5: 'Excellent' };

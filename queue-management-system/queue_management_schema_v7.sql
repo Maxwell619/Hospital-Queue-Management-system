@@ -1,13 +1,5 @@
--- ============================================================
--- Web-Based Queue Management System with USSD and WhatsApp Support
--- Database schema v7 (PostgreSQL) -- normalized to Third Normal Form
--- Generated from the updated Facilitator/Department class diagram.
--- ============================================================
---
--- 3NF NORMALIZATION NOTES (read this before the CREATE TABLE
--- statements -- it explains every column that's missing compared to
--- the class diagram's attribute lists):
---
+
+
 -- 1NF check: every column holds a single atomic value. The one thing
 -- that would have violated this -- Department.facilitatorList[], an
 -- array of Facilitator objects -- is not a real column at all; it's

@@ -185,12 +185,11 @@ export default function StaffDashboardPage() {
     } catch (err) {
       setError(err.message);
     } finally {
-      // Refresh even after a failure, so the screen shows what actually happened
-      // (for example, checkout succeeded but calling the next patient did not).
+     
       try {
         await refreshServices();
       } catch {
-        /* the original error, if any, is already shown */
+        
       }
       setActionBusy(false);
     }

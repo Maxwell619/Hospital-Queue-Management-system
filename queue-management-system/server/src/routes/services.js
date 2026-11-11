@@ -15,9 +15,7 @@ const ROLE_LABEL = { doctor: "consultation", labstaff: "lab test", pharmacist: "
 const REFERRAL_ROLE = { lab: "labstaff", pharmacy: "pharmacist" };
 
 // Releases one unit of a facilitator's load without ever going below zero
-// (the seeded in-progress service starts with a count of 0).
-// Deliberately NOT async: the array form of prisma.$transaction([...])
-// needs the raw Prisma promise, and an async wrapper would break it.
+
 const releaseLoad = (db, facilitatorId) =>
   db.facilitator.updateMany({
     where: { facilitatorId, numberOfQueuedPatients: { gt: 0 } },
@@ -225,9 +223,7 @@ router.patch(
   })
 );
 
-// GET /api/services/:serviceId
-// Now requires login, and only exposes the facilitator's public fields --
-// previously this returned the whole facilitator row, passwordHash included.
+
 router.get(
   "/:serviceId",
   authenticate,

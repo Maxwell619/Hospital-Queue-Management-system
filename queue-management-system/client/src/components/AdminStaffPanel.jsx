@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
+import RoomsSection, { ROLE_ROOM_TYPE, TYPE_LABEL } from './RoomSection';
 
 const STAFF_TYPES = [
   { value: 'facilitator', label: 'Facilitator (doctor / lab / pharmacy)' },
@@ -14,7 +15,7 @@ const FACILITATOR_ROLES = [
   { value: 'pharmacist', label: 'Pharmacist' },
 ];
 
-const TYPE_LABEL = Object.fromEntries(STAFF_TYPES.map((t) => [t.value, t.label.split(' (')[0]]));
+const TYPE_LABEL_STAFF = Object.fromEntries(STAFF_TYPES.map((t) => [t.value, t.label.split(' (')[0]]));
 
 // Admins shouldn't have to invent passwords. This fills the field with a
 // random one (no look-alike characters) that they can still overwrite.
@@ -32,41 +33,56 @@ function blankForm(staffType = 'facilitator') {
     password: randomPassword(),
     departmentId: '',
     role: 'doctor',
-    room: '',
+    roomId: '',
     station: '',
   };
 }
 
 const rowKey = (s) => `${s.staffType}-${s.id}`;
 
+// The rooms a staff member could be placed in: the right type for their role,
+// and either open to every department or in their department.
+function compatibleRooms(rooms, role, departmentId) {
+  const type = ROLE_ROOM_TYPE[role];
+  return rooms.filter(
+    (r) => r.roomType === type && (r.departmentId == null || r.departmentId === Number(departmentId))
+  );
+}
+
 export default function AdminStaffPanel() {
   const [form, setForm] = useState(blankForm);
   const [departments, setDepartments] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [rooms, setRooms] = useState([]);
   const [created, setCreated] = useState(null); // shown once, includes the password
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  // Unsaved room edits for existing facilitators: { [rowKey]: text }
-  const [roomEdits, setRoomEdits] = useState({});
-  const [savingRoom, setSavingRoom] = useState(null);
+  const [assigning, setAssigning] = useState(null); // rowKey while a room change is saving
 
   // Only facilitators belong to a department. Nurses and receptionists work
   // across the whole hospital; administrators have no department either.
   const needsDepartment = form.staffType === 'facilitator';
   const needsStation = form.staffType === 'triage_nurse' || form.staffType === 'receptionist';
 
-  const loadStaff = useCallback(async () => {
-    setStaff(await api.get('/api/staff'));
+  const reload = useCallback(async () => {
+    const [people, places] = await Promise.all([api.get('/api/staff'), api.get('/api/rooms')]);
+    setStaff(people);
+    setRooms(places);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const [depts, people] = await Promise.all([api.get('/api/departments'), api.get('/api/staff')]);
+        const [depts, people, places] = await Promise.all([
+          api.get('/api/departments'),
+          api.get('/api/staff'),
+          api.get('/api/rooms'),
+        ]);
         if (cancelled) return;
         setDepartments(depts);
         setStaff(people);
+        setRooms(places);
         setForm((f) => ({ ...f, departmentId: depts.length ? String(depts[0].departmentId) : '' }));
       } catch (err) {
         if (!cancelled) setError(err.message);
@@ -79,7 +95,8 @@ export default function AdminStaffPanel() {
   }, []);
 
   function update(field, value) {
-    setForm((f) => ({ ...f, [field]: value }));
+    // A different role or department means a different set of valid rooms.
+    setForm((f) => ({ ...f, [field]: value, ...(field === 'role' || field === 'departmentId' ? { roomId: '' } : {}) }));
   }
 
   async function handleSubmit(e) {
@@ -97,14 +114,14 @@ export default function AdminStaffPanel() {
       if (needsDepartment) body.departmentId = Number(form.departmentId);
       if (form.staffType === 'facilitator') {
         body.role = form.role;
-        if (form.room.trim()) body.room = form.room.trim();
+        if (form.roomId) body.roomId = Number(form.roomId);
       }
       if (needsStation && form.station.trim()) body.station = form.station.trim();
 
       const person = await api.post('/api/staff', body);
       setCreated({ ...person, password: form.password });
       setForm({ ...blankForm(form.staffType), departmentId: form.departmentId });
-      await loadStaff();
+      await reload();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -112,184 +129,189 @@ export default function AdminStaffPanel() {
     }
   }
 
-  async function saveRoom(s) {
+  async function assignRoom(s, value) {
     const key = rowKey(s);
-    setSavingRoom(key);
+    setAssigning(key);
     setError(null);
     try {
-      await api.patch(`/api/staff/facilitator/${s.id}`, { room: (roomEdits[key] ?? '').trim() });
-      setRoomEdits((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      await loadStaff();
+      await api.patch(`/api/staff/facilitator/${s.id}`, { roomId: value ? Number(value) : null });
+      await reload();
     } catch (err) {
       setError(err.message);
     } finally {
-      setSavingRoom(null);
+      setAssigning(null);
     }
   }
 
+  const formRooms = compatibleRooms(rooms, form.role, form.departmentId);
+  const formPlaceLabel = TYPE_LABEL[ROLE_ROOM_TYPE[form.role]];
+
   return (
-    <section className="card">
-      <h2>Staff</h2>
+    <>
+      <RoomsSection rooms={rooms} departments={departments} onChanged={reload} />
 
-      {error && <p className="error">{error}</p>}
+      <section className="card">
+        <h2>Staff</h2>
 
-      {created && (
-        <p>
-          Created <strong>{created.name}</strong> ({TYPE_LABEL[created.staffType]}). Username{' '}
-          <strong>{created.username}</strong>, password <strong>{created.password}</strong>. This is the
-          only time the password is shown, so note it down.
+        {error && <p className="error">{error}</p>}
+
+        {created && (
+          <p>
+            Created <strong>{created.name}</strong> ({TYPE_LABEL_STAFF[created.staffType]}). Username{' '}
+            <strong>{created.username}</strong>, password <strong>{created.password}</strong>. This is the
+            only time the password is shown, so note it down.
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <label htmlFor="staffType">Type</label>
+          <select
+            id="staffType"
+            value={form.staffType}
+            onChange={(e) => update('staffType', e.target.value)}
+          >
+            {STAFF_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+
+          {form.staffType === 'facilitator' && (
+            <>
+              <label htmlFor="role">Role</label>
+              <select id="role" value={form.role} onChange={(e) => update('role', e.target.value)}>
+                {FACILITATOR_ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
+          {needsDepartment && (
+            <>
+              <label htmlFor="departmentId">Department</label>
+              <select
+                id="departmentId"
+                value={form.departmentId}
+                onChange={(e) => update('departmentId', e.target.value)}
+                required
+              >
+                {departments.map((d) => (
+                  <option key={d.departmentId} value={d.departmentId}>
+                    {d.departmentName}
+                  </option>
+                ))}
+              </select>
+
+              <label htmlFor="roomId">{formPlaceLabel} (optional)</label>
+              <select id="roomId" value={form.roomId} onChange={(e) => update('roomId', e.target.value)}>
+                <option value="">{formRooms.length ? 'Not assigned yet' : `No ${formPlaceLabel.toLowerCase()} available`}</option>
+                {formRooms.map((r) => (
+                  <option key={r.roomId} value={r.roomId}>
+                    {r.roomName}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
+          <label htmlFor="name">Full name</label>
+          <input id="name" value={form.name} onChange={(e) => update('name', e.target.value)} required />
+
+          <label htmlFor="username">Username</label>
+          <input
+            id="username"
+            value={form.username}
+            onChange={(e) => update('username', e.target.value)}
+            placeholder="e.g. jane.doe"
+            required
+          />
+
+          {needsStation && (
+            <>
+              <label htmlFor="station">Station (optional)</label>
+              <input id="station" value={form.station} onChange={(e) => update('station', e.target.value)} />
+            </>
+          )}
+
+          <label htmlFor="password">Initial password</label>
+          <input
+            id="password"
+            value={form.password}
+            onChange={(e) => update('password', e.target.value)}
+            minLength={8}
+            required
+          />
+
+          <button type="submit" disabled={busy} style={{ marginTop: '0.75rem' }}>
+            {busy ? 'Creating…' : 'Create staff member'}
+          </button>
+        </form>
+
+        <h3 style={{ marginTop: '1.5rem' }}>Current staff</h3>
+        <p style={{ fontSize: '0.85rem', color: '#666' }}>
+          Patients are sent to the room, lab or pharmacy of the staff member they're assigned to. Create
+          places above, then choose one here. Staff without one fall back to their department's room.
         </p>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="staffType">Type</label>
-        <select
-          id="staffType"
-          value={form.staffType}
-          onChange={(e) => update('staffType', e.target.value)}
-        >
-          {STAFF_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-
-        {form.staffType === 'facilitator' && (
-          <>
-            <label htmlFor="role">Role</label>
-            <select id="role" value={form.role} onChange={(e) => update('role', e.target.value)}>
-              {FACILITATOR_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
-
-        {needsDepartment && (
-          <>
-            <label htmlFor="departmentId">Department</label>
-            <select
-              id="departmentId"
-              value={form.departmentId}
-              onChange={(e) => update('departmentId', e.target.value)}
-              required
-            >
-              {departments.map((d) => (
-                <option key={d.departmentId} value={d.departmentId}>
-                  {d.departmentName}
-                </option>
-              ))}
-            </select>
-
-            <label htmlFor="room">Room (optional)</label>
-            <input
-              id="room"
-              value={form.room}
-              onChange={(e) => update('room', e.target.value)}
-              placeholder="e.g. Room 3"
-              maxLength={40}
-            />
-          </>
-        )}
-
-        <label htmlFor="name">Full name</label>
-        <input id="name" value={form.name} onChange={(e) => update('name', e.target.value)} required />
-
-        <label htmlFor="username">Username</label>
-        <input
-          id="username"
-          value={form.username}
-          onChange={(e) => update('username', e.target.value)}
-          placeholder="e.g. jane.doe"
-          required
-        />
-
-        {needsStation && (
-          <>
-            <label htmlFor="station">Station (optional)</label>
-            <input id="station" value={form.station} onChange={(e) => update('station', e.target.value)} />
-          </>
-        )}
-
-        <label htmlFor="password">Initial password</label>
-        <input
-          id="password"
-          value={form.password}
-          onChange={(e) => update('password', e.target.value)}
-          minLength={8}
-          required
-        />
-
-        <button type="submit" disabled={busy} style={{ marginTop: '0.75rem' }}>
-          {busy ? 'Creating…' : 'Create staff member'}
-        </button>
-      </form>
-
-      <h3 style={{ marginTop: '1.5rem' }}>Current staff</h3>
-     
-      <table className="queue-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Department</th>
-            <th>Room</th>
-            <th>Username</th>
-          </tr>
-        </thead>
-        <tbody>
-          {staff.map((s) => {
-            const key = rowKey(s);
-            const isFacilitator = s.staffType === 'facilitator';
-            const edited = roomEdits[key];
-            const current = s.room ?? '';
-            const dirty = edited !== undefined && edited.trim() !== current;
-            return (
-              <tr key={key}>
-                <td>{s.name}</td>
-                <td>
-                  {s.role
-                    ? FACILITATOR_ROLES.find((r) => r.value === s.role)?.label ?? s.role
-                    : TYPE_LABEL[s.staffType]}
-                </td>
-                <td>{s.department ?? '—'}</td>
-                <td>
-                  {isFacilitator ? (
-                    <span style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                      <input
-                        value={edited ?? current}
-                        onChange={(e) => setRoomEdits((prev) => ({ ...prev, [key]: e.target.value }))}
-                        placeholder="Not set"
-                        maxLength={40}
-                        aria-label={`Room for ${s.name}`}
-                        style={{ width: '9rem', margin: 0 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => saveRoom(s)}
-                        disabled={!dirty || savingRoom === key}
-                        style={{ width: 'auto', margin: 0 }}
-                      >
-                        {savingRoom === key ? 'Saving…' : 'Save'}
-                      </button>
-                    </span>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td>{s.username}</td>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="queue-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Department</th>
+                <th>Assigned to</th>
+                <th>Username</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </section>
+            </thead>
+            <tbody>
+              {staff.map((s) => {
+                const key = rowKey(s);
+                const isFacilitator = s.staffType === 'facilitator';
+                const options = isFacilitator ? compatibleRooms(rooms, s.role, s.departmentId) : [];
+                const current = s.roomId ? rooms.find((r) => r.roomId === s.roomId) : null;
+                // Keep the current choice visible even if it no longer matches the rules.
+                const shown = current && !options.some((r) => r.roomId === current.roomId) ? [...options, current] : options;
+                return (
+                  <tr key={key}>
+                    <td>{s.name}</td>
+                    <td>
+                      {s.role
+                        ? FACILITATOR_ROLES.find((r) => r.value === s.role)?.label ?? s.role
+                        : TYPE_LABEL_STAFF[s.staffType]}
+                    </td>
+                    <td>{s.department ?? '—'}</td>
+                    <td>
+                      {isFacilitator ? (
+                        <select
+                          value={s.roomId ?? ''}
+                          onChange={(e) => assignRoom(s, e.target.value)}
+                          disabled={assigning === key}
+                          aria-label={`Assigned place for ${s.name}`}
+                          style={{ margin: 0, width: 'auto' }}
+                        >
+                          <option value="">{s.room && !s.roomId ? `(old text) ${s.room}` : 'Not assigned'}</option>
+                          {shown.map((r) => (
+                            <option key={r.roomId} value={r.roomId}>
+                              {r.roomName}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>{s.username}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
   );
 }

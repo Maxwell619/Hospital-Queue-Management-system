@@ -3,11 +3,13 @@
 .app-shell {
     display: flex;
     min-height: 100vh;
+    
   }
   
   .app-main {
     flex: 1;
     min-width: 0; /* lets wide tables shrink instead of pushing the page sideways */
+    
   }
   
   .app-sidebar {
@@ -30,6 +32,7 @@
     font-weight: 600;
     font-size: 1.05rem;
     padding: 0 0.25rem;
+    
   }
   
   .app-sidebar nav {
@@ -99,7 +102,7 @@
     text-transform: capitalize;
   }
   
-  /* Narrow screens (phones): the sidebar becomes a bar across the top. */
+  
   @media (max-width: 800px) {
     .app-shell {
       flex-direction: column;

@@ -17,6 +17,7 @@ model Department {
   facilitators Facilitator[]
   triageNurses TriageNurse[]
   tickets      Ticket[]
+  rooms        Room[]
 
   @@map("department")
 }
@@ -36,6 +37,8 @@ model Facilitator {
   services      Service[]
   assignments   ServiceAssignment[]
   room String? @map("room")
+  roomId       Int?  @map("room_id")
+  assignedRoom Room? @relation(fields: [roomId], references: [roomId])
 
   @@map("facilitator")
 }
@@ -196,4 +199,17 @@ model Notification {
      ticket Ticket @relation(fields: [ticketNumber], references: [ticketNumber], onDelete: Cascade)
 
      @@map("feedback")
+   }
+
+      model Room {
+     roomId       Int      @id @default(autoincrement()) @map("room_id")
+     roomName     String   @map("room_name")
+     roomType     String   @map("room_type")   // room | lab | pharmacy
+     departmentId Int?     @map("department_id")
+
+     department   Department?  @relation(fields: [departmentId], references: [departmentId])
+     facilitators Facilitator[]
+
+     @@unique([roomName, roomType])
+     @@map("room")
    }
