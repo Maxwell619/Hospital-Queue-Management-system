@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../db');
 const { getDefaultDepartmentId, getQueueInfo, getAssignment } = require('../services/queue');
-const { notifyTicketBySms } = require('../services/ticketSms');
+const { notifyTicketBySms } = require('../services/ticketsms');
 const { submitFeedback } = require('../services/feedback');
 const ApiError = require('../lib/ApiError');
 

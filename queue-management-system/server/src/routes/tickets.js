@@ -5,7 +5,7 @@ const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
 const { notify } = require('../services/notify');
 const { getDefaultDepartmentId, getQueueInfo, getAssignment } = require('../services/queue');
-const { notifyTicketBySms } = require('../services/ticketSms');
+const { notifyTicketBySms } = require('../services/ticketsms');
 const { submitFeedback } = require('../services/feedback');
 
 router.post(

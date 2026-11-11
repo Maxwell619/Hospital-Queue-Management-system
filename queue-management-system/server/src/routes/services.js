@@ -4,7 +4,7 @@ const asyncHandler = require("../lib/asyncHandler");
 const ApiError = require("../lib/ApiError");
 const { authenticate, requireRole } = require("../middleware/authenticate");
 const { notify } = require("../services/notify");
-const { notifyTicketBySms } = require("../services/ticketSms");
+const { notifyTicketBySms } = require("../services/ticketsms");
 
 const router = Router();
 

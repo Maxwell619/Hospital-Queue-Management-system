@@ -4,7 +4,7 @@ const prisma = require('../db');
 const asyncHandler = require('../lib/asyncHandler');
 const ApiError = require('../lib/ApiError');
 const { authenticate, requireRole } = require('../middleware/authenticate');
-const { notifyTicketBySms } = require('../services/ticketSms');
+const { notifyTicketBySms } = require('../services/ticketsms');
 
 /**
  * POST /api/triage/:ticketNumber
