@@ -23,9 +23,7 @@ const releaseLoad = (db, facilitatorId) =>
   });
 
 // GET /api/services?completionStatus=pending
-// A facilitator's own worklist: services already assigned to them by
-// routes/triage.js. Includes the facilitator's role so the dashboard can
-// show the "refer" buttons to doctors only.
+
 router.get(
   "/",
   authenticate,
@@ -50,10 +48,7 @@ router.get(
 );
 
 // PATCH /api/services/:serviceId/start
-// pending -> in_progress, and the ticket follows.
-// A facilitator serves one patient at a time: starting another while one is
-// still in progress is refused. Check the current patient out first (the
-// dashboard's "Check out & call next" does both in order).
+
 router.patch(
   "/:serviceId/start",
   authenticate,

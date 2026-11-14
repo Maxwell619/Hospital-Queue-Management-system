@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
 import RoomsSection, { ROLE_ROOM_TYPE, TYPE_LABEL } from './RoomSection';
+import ServiceRoutingSection from './serviceRoutingSection';
 
 const STAFF_TYPES = [
   { value: 'facilitator', label: 'Facilitator (doctor / lab / pharmacy)' },
@@ -148,6 +149,8 @@ export default function AdminStaffPanel() {
 
   return (
     <>
+      <ServiceRoutingSection />
+
       <RoomsSection rooms={rooms} departments={departments} onChanged={reload} />
 
       <section className="card">

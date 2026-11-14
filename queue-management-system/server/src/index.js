@@ -55,6 +55,7 @@ app.use('/api/ussd', require('./routes/ussd'));
 app.use('/api/analytics', require('./routes/Analytics'));
 app.use('/api/feedback', require('./routes/feedback'));
 app.use('/api/rooms', require('./routes/Rooms'));
+app.use('/api/service-routing', require('./routes/serviceRouting'));
 
 
 

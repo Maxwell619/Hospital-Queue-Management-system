@@ -7,6 +7,7 @@ const { notify } = require('../services/notify');
 const { getDefaultDepartmentId, getQueueInfo, getAssignment } = require('../services/queue');
 const { notifyTicketBySms } = require('../services/ticketsms');
 const { submitFeedback } = require('../services/feedback');
+const { routeDirectly, ROUTE_CHOICES, ROUTE_ROLE } = require('../services/routing');
 
 router.post(
   '/',
@@ -122,28 +123,66 @@ router.patch(
     const ticketNumber = Number(req.params.ticketNumber);
     if (!Number.isInteger(ticketNumber)) throw new ApiError(400, 'ticketNumber must be an integer');
 
-    const current = await prisma.ticket.findUnique({ where: { ticketNumber } });
-    if (!current) throw new ApiError(404, 'Ticket not found');
-    if (current.status !== 'pending') {
-      throw new ApiError(409, `Cannot check in a ticket with status "${current.status}"`);
+    // Optional body { route: "triage" | "lab" | "pharmacy" }: where the receptionist sends the
+    // patient. Left out, the service type's default applies (lab and pharmacy services skip triage).
+    const choice = req.body?.route;
+    if (choice !== undefined && !ROUTE_CHOICES.includes(choice)) {
+      throw new ApiError(400, `route must be one of: ${ROUTE_CHOICES.join(', ')}`);
     }
 
-    const ticket = await prisma.ticket.update({
-      where: { ticketNumber },
-      data: { status: 'checked_in', checkedInAt: new Date() },
-    });
+    // Check-in and (for lab / pharmacy services) the direct routing happen together,
+    // so a ticket is never left half way between reception and its staff member.
+    const { ticket, routed, directRole } = await prisma.$transaction(async (tx) => {
+      const current = await tx.ticket.findUnique({
+        where: { ticketNumber },
+        include: { serviceType: { select: { directRouteRole: true } } },
+      });
+      if (!current) throw new ApiError(404, 'Ticket not found');
+      if (current.status !== 'pending') {
+        throw new ApiError(409, `Cannot check in a ticket with status "${current.status}"`);
+      }
 
-    await prisma.patient.update({
-      where: { patientId: ticket.patientId },
-      data: { checkInTime: new Date() },
+      // Claim the ticket in one atomic step: only a still-pending ticket matches, so if
+      // two receptionists click at the same moment exactly one of them wins.
+      const claimed = await tx.ticket.updateMany({
+        where: { ticketNumber, status: 'pending' },
+        data: { status: 'checked_in', checkedInAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new ApiError(409, 'This ticket was just checked in by someone else');
+      }
+      const checkedIn = await tx.ticket.findUnique({ where: { ticketNumber } });
+      await tx.patient.update({
+        where: { patientId: checkedIn.patientId },
+        data: { checkInTime: new Date() },
+      });
+
+      // Services marked "skip triage" go straight to the lab or pharmacy. If nobody
+      // with that role exists the ticket simply stays checked in for the nurse.
+      // The receptionist's choice wins over the service type's default; "triage" means no direct route.
+      const role = choice === undefined ? current.serviceType?.directRouteRole || null : ROUTE_ROLE[choice] || null;
+      const direct = role ? await routeDirectly(tx, ticketNumber, role) : null;
+      return { ticket: direct ? direct.ticket : checkedIn, routed: direct, directRole: role };
     });
 
     const io = req.app.get('io');
     io.emit('ticket:updated', ticket);
-    await notify(io, ticket, "You're checked in. We'll notify you when it's your turn.");
-    notifyTicketBySms(ticket.ticketNumber, 'checked_in'); // not awaited on purpose
+    if (routed) {
+      const place = [routed.department, routed.room].filter(Boolean).join(', ');
+      await notify(io, ticket, `You're checked in. Please go to ${place}.`);
+      notifyTicketBySms(ticket.ticketNumber, 'triaged'); // one text: where to go, not two
+    } else {
+      await notify(io, ticket, "You're checked in. We'll notify you when it's your turn.");
+      notifyTicketBySms(ticket.ticketNumber, 'checked_in'); // not awaited on purpose
+    }
 
-    res.json(ticket);
+    res.json({
+      ...ticket,
+      routing: routed
+        ? { staffName: routed.staffName, role: routed.role, department: routed.department, room: routed.room }
+        : null,
+      directRouteUnavailable: Boolean(directRole && !routed),
+    });
   })
 );
 

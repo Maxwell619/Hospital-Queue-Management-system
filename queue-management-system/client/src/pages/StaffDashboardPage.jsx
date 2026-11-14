@@ -5,7 +5,22 @@ import { socket } from '../api/socket';
 import { useAuth } from '../context/AuthContext';
 import AdminStaffPanel from '../components/AdminStaffPanel';
 
+// Where the receptionist can send a patient at check-in.
+const ROUTE_OPTIONS = [
+  { value: 'triage', label: 'Triage nurse' },
+  { value: 'lab', label: 'Laboratory' },
+  { value: 'pharmacy', label: 'Pharmacy' },
+];
+const ROUTE_LABEL = Object.fromEntries(ROUTE_OPTIONS.map((o) => [o.value, o.label]));
 
+// The default for a ticket comes from its service type (set by the admin under
+// Service routing): lab and pharmacy services skip the triage nurse.
+function defaultRoute(ticket) {
+  const role = ticket.serviceType?.directRouteRole;
+  if (role === 'labstaff') return 'lab';
+  if (role === 'pharmacist') return 'pharmacy';
+  return 'triage';
+}
 
 export default function StaffDashboardPage() {
   const { user, logout } = useAuth();
@@ -18,6 +33,9 @@ export default function StaffDashboardPage() {
   // Each ticket gets its own destination: { [ticketNumber]: departmentId }.
   // A single shared value meant every patient was routed to the same place.
   const [triageSelections, setTriageSelections] = useState({});
+  // Receptionist: where each ticket is sent at check-in, { [ticketNumber]: 'triage' | 'lab' | 'pharmacy' }.
+  // Tickets without an entry use their service type's default.
+  const [routeChoices, setRouteChoices] = useState({});
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null); // success message after an action
   const [loading, setLoading] = useState(true);
@@ -90,14 +108,39 @@ export default function StaffDashboardPage() {
     return () => socket.off('ticket:updated', handleUpdate);
   }, [refreshQueue, refreshServices, user.staffType]);
 
-  async function handleCheckIn(ticketNumber) {
+  const routeFor = (ticket) => routeChoices[ticket.ticketNumber] ?? defaultRoute(ticket);
+
+  // Check a patient in and send them where the receptionist chose: the triage
+  // nurse, or straight to the lab or pharmacy.
+  async function handleCheckIn(ticket) {
+    const route = routeFor(ticket);
+    const number = ticket.ticketNumber;
+
     setActionBusy(true);
     setError(null);
+    setNotice(null);
     try {
-      await api.patch(`/api/tickets/${ticketNumber}/check-in`, {});
+      const result = await api.patch(`/api/tickets/${number}/check-in`, { route });
+      if (result.routing) {
+        // Tell the receptionist where to send the patient.
+        const place = [result.routing.department, result.routing.room].filter(Boolean).join(', ');
+        setNotice(`Ticket #${number} checked in. Send the patient to ${place} (${result.routing.staffName}).`);
+      } else if (result.directRouteUnavailable) {
+        setNotice(
+          `Ticket #${number} checked in, but no ${ROUTE_LABEL[route].toLowerCase()} staff are available, ` +
+            'so the patient goes to the triage nurse instead.'
+        );
+      } else {
+        setNotice(`Ticket #${number} checked in. The triage nurse will route the patient.`);
+      }
       await refreshQueue();
     } catch (err) {
       setError(err.message);
+      try {
+        await refreshQueue(); // e.g. someone else already checked this ticket in
+      } catch {
+        /* the original error is already shown */
+      }
     } finally {
       setActionBusy(false);
     }
@@ -146,20 +189,6 @@ export default function StaffDashboardPage() {
     }
   }
 
-  async function handleCompleteService(serviceId) {
-    setActionBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.patch(`/api/services/${serviceId}/complete`, {});
-      await refreshServices();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
   // Check out the patient being served and immediately call the next one.
   // The next patient is the first entry in pendingServices, i.e. the order
   // the API returns them in.
@@ -185,24 +214,15 @@ export default function StaffDashboardPage() {
     } catch (err) {
       setError(err.message);
     } finally {
-     
+      // Refresh even after a failure, so the screen shows what actually happened
+      // (for example, checkout succeeded but calling the next patient did not).
       try {
         await refreshServices();
       } catch {
-        
+        /* the original error, if any, is already shown */
       }
       setActionBusy(false);
     }
-  }
-
-  // Call the next patient when nobody is currently being served.
-  async function handleCallNext() {
-    const next = pendingServices[0];
-    if (!next) return;
-    await handleStartService(next.serviceId);
-    setNotice(
-      `Now serving ticket #${next.ticket?.ticketNumber} — ${next.ticket?.patient?.patientName}.`
-    );
   }
 
   async function handleRefer(serviceId, to) {
@@ -218,12 +238,6 @@ export default function StaffDashboardPage() {
       setActionBusy(false);
     }
   }
-
- 
-
-  <button onClick={() => navigate('/analytics')}>View analytics </button> 
-  
-  
 
   function handleLogout() {
     logout();
@@ -251,10 +265,9 @@ export default function StaffDashboardPage() {
           <>
             <section className="card">
               <h2>Reports</h2>
-              <p>View analytics and generate a report of completed tickets across all departments.</p>
-              
+              <p>View analytics and patient feedback.</p>
               <button onClick={() => navigate('/analytics')}>View analytics</button>
-              <button onClick={()=> navigate('/feedback')}>View feedback</button>
+              <button onClick={() => navigate('/feedback')}>View feedback</button>
             </section>
             <AdminStaffPanel />
           </>
@@ -299,13 +312,7 @@ export default function StaffDashboardPage() {
                       ))}
                     </tbody>
                   </table>
-                  {activeServices.length === 0 ? (
-                    <p>
-                      
-                    </p>
-                  ) : (
-                    <p>Check out the current patient before starting another.</p>
-                  )}
+                  {activeServices.length > 0 && <p>Check out the current patient before starting another.</p>}
                 </>
               )}
             </section>
@@ -334,7 +341,6 @@ export default function StaffDashboardPage() {
                   <button onClick={() => handleCheckOutAndCallNext(s)} disabled={actionBusy}>
                     {pendingServices.length > 0 ? 'Check out & call next' : 'Check out'}
                   </button>
-                  
                 </div>
               ))}
             </section>
@@ -352,22 +358,41 @@ export default function StaffDashboardPage() {
                     <th>Ticket</th>
                     <th>Patient</th>
                     <th>Service</th>
+                    <th>Send to</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {tickets.map((t) => (
-                    <tr key={t.ticketNumber}>
-                      <td>#{t.ticketNumber}</td>
-                      <td>{t.patient?.patientName}</td>
-                      <td>{t.serviceType?.serviceName}</td>
-                      <td>
-                        <button onClick={() => handleCheckIn(t.ticketNumber)} disabled={actionBusy}>
-                          Check in
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {tickets.map((t) => {
+                    const route = routeFor(t);
+                    return (
+                      <tr key={t.ticketNumber}>
+                        <td>#{t.ticketNumber}</td>
+                        <td>{t.patient?.patientName}</td>
+                        <td>{t.serviceType?.serviceName}</td>
+                        <td>
+                          <select
+                            value={route}
+                            onChange={(e) =>
+                              setRouteChoices((prev) => ({ ...prev, [t.ticketNumber]: e.target.value }))
+                            }
+                            aria-label={`Send ticket ${t.ticketNumber} to`}
+                          >
+                            {ROUTE_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <button onClick={() => handleCheckIn(t)} disabled={actionBusy}>
+                            {route === 'triage' ? 'Check in' : `Check in → ${ROUTE_LABEL[route]}`}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

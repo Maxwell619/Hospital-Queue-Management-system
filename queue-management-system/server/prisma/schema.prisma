@@ -120,6 +120,7 @@ model ServiceType {
   description String?
   serviceName String   @unique @map("service_name")
   tickets     Ticket[]
+  directRouteRole String?
 
   @@map("service_type")
 }

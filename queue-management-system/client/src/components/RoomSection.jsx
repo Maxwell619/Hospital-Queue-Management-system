@@ -90,7 +90,7 @@ export default function RoomsSection({ rooms, departments, onChanged }) {
           required
         />
 
-        <label htmlFor="roomDepartment">Department (optional)</label>
+        <label htmlFor="roomDepartment">Department </label>
         <select
           id="roomDepartment"
           value={form.departmentId}
