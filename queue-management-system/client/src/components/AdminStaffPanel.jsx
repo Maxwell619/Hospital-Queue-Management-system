@@ -255,10 +255,7 @@ export default function AdminStaffPanel() {
         </form>
 
         <h3 style={{ marginTop: '1.5rem' }}>Current staff</h3>
-        <p style={{ fontSize: '0.85rem', color: '#666' }}>
-          Patients are sent to the room, lab or pharmacy of the staff member they're assigned to. Create
-          places above, then choose one here. Staff without one fall back to their department's room.
-        </p>
+       
         <div style={{ overflowX: 'auto' }}>
           <table className="queue-table">
             <thead>

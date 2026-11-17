@@ -1,12 +1,4 @@
-// Fills the database with ~30 days of realistic DEMO history so the analytics
-// charts have something to show.
-//
-//   node prisma/seedAnalytics.js            add demo data (replaces earlier demo data)
-//   node prisma/seedAnalytics.js --clear    remove all demo data
-//
-// Demo patients are named "Demo Patient N" with phone numbers 0700000001...,
-// so they are easy to find and remove. Nothing else is touched, no SMS is sent,
-// and staff load counters are left alone. Run it from the server folder.
+
 try {
     require('dotenv').config();
   } catch {

@@ -1,13 +1,11 @@
-// One-off helper: turns the old free-text rooms typed against staff into real
-// Room records and links the staff to them.
-//
-//   node prisma/migrateRooms.js
-//
+
+
+
 // Run it once, after adding the Room model and Facilitator.roomId to schema.prisma
 // and running `npx prisma db push`. For each distinct (name, type) it creates a
 // room (type is worked out from the staff member's role) and clears the old text.
 // A room used by staff from several departments is left without a department.
-// Safe to run again: staff already linked are skipped.
+
 try {
     require('dotenv').config();
   } catch {
